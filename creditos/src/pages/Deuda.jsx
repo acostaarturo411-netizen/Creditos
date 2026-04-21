@@ -20,6 +20,14 @@ export default function Deuda() {
   const [fechaFin, setFechaFin] = useState('')
   const [periodoTotal, setPeriodoTotal] = useState(null)
   const [loading, setLoading] = useState(true)
+  const [editandoProveedor, setEditandoProveedor] = useState(false)
+  const [nombreEditProv, setNombreEditProv] = useState('')
+  const [telEditProv, setTelEditProv] = useState('')
+  const [editandoCompra, setEditandoCompra] = useState(null)
+  const [compraForm, setCompraForm] = useState(false)
+  const [nuevaCompraDesc, setNuevaCompraDesc] = useState('')
+  const [nuevaCompraMonto, setNuevaCompraMonto] = useState('')
+  const [nuevaCompraFecha, setNuevaCompraFecha] = useState(new Date().toISOString().split('T')[0])
 
   useEffect(() => { loadProveedores() }, [])
 
@@ -41,11 +49,61 @@ export default function Deuda() {
   async function verDetalle(prov) {
     setDetalle(prov)
     setAbonoForm(false)
+    setCompraForm(false)
+    setEditandoProveedor(false)
+    setEditandoCompra(null)
     setPeriodoTotal(null)
     const { data: cs } = await supabase.from('compras_proveedores').select('*').eq('proveedor_id', prov.id).order('creado_en', { ascending: false })
     const { data: as } = await supabase.from('abonos_proveedores').select('*').eq('proveedor_id', prov.id).order('creado_en', { ascending: false })
     setCompras(cs || [])
     setAbonos(as || [])
+  }
+
+  async function guardarNombreProveedor() {
+    if (!nombreEditProv.trim()) return
+    await supabase.from('proveedores').update({ nombre: nombreEditProv.trim(), telefono: telEditProv }).eq('id', detalle.id)
+    const updated = { ...detalle, nombre: nombreEditProv.trim(), telefono: telEditProv }
+    setDetalle(updated)
+    setEditandoProveedor(false)
+    loadProveedores()
+  }
+
+  async function guardarCompra() {
+    const monto = parseFloat(nuevaCompraMonto.replace(/[^0-9.]/g, ''))
+    if (!nuevaCompraDesc.trim() || !monto) return alert('Ingresa descripción y monto')
+    const fecha = nuevaCompraFecha ? new Date(nuevaCompraFecha + 'T12:00:00').toISOString() : new Date().toISOString()
+    await supabase.from('compras_proveedores').insert({
+      proveedor_id: detalle.id,
+      descripcion: nuevaCompraDesc.trim(),
+      total: monto,
+      creado_en: fecha
+    })
+    setNuevaCompraDesc(''); setNuevaCompraMonto(''); setNuevaCompraFecha(new Date().toISOString().split('T')[0])
+    setCompraForm(false)
+    verDetalle(detalle)
+    loadProveedores()
+  }
+
+  async function guardarEdicionCompra() {
+    if (!editandoCompra) return
+    const monto = parseFloat(String(editandoCompra.total).replace(/[^0-9.]/g, ''))
+    if (!monto) return alert('Ingresa un monto válido')
+    const fecha = editandoCompra.fecha_edit ? new Date(editandoCompra.fecha_edit + 'T12:00:00').toISOString() : editandoCompra.creado_en
+    await supabase.from('compras_proveedores').update({
+      descripcion: editandoCompra.descripcion,
+      total: monto,
+      creado_en: fecha
+    }).eq('id', editandoCompra.id)
+    setEditandoCompra(null)
+    verDetalle(detalle)
+    loadProveedores()
+  }
+
+  async function eliminarCompra(id) {
+    if (!confirm('¿Eliminar esta compra?')) return
+    await supabase.from('compras_proveedores').delete().eq('id', id)
+    verDetalle(detalle)
+    loadProveedores()
   }
 
   async function subirFoto(file) {
@@ -114,9 +172,21 @@ export default function Deuda() {
 
   if (detalle) return (
     <div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, flexWrap: 'wrap' }}>
         <button className="btn btn-sm" onClick={() => setDetalle(null)}>← Regresar</button>
-        <span style={{ fontSize: 15, fontWeight: 500 }}>{detalle.nombre}</span>
+        {!editandoProveedor ? (
+          <>
+            <span style={{ fontSize: 16, fontWeight: 700, flex: 1 }}>{detalle.nombre}</span>
+            <button className="btn btn-sm" onClick={() => { setNombreEditProv(detalle.nombre); setTelEditProv(detalle.telefono || ''); setEditandoProveedor(true) }}>Editar nombre</button>
+          </>
+        ) : (
+          <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' }}>
+            <input value={nombreEditProv} onChange={e => setNombreEditProv(e.target.value)} style={{ flex: 1, minWidth: 140 }} placeholder="Nombre del proveedor" />
+            <input value={telEditProv} onChange={e => setTelEditProv(e.target.value)} style={{ width: 130 }} placeholder="Teléfono" />
+            <button className="btn btn-sm" onClick={() => setEditandoProveedor(false)}>Cancelar</button>
+            <button className="btn btn-p btn-sm" onClick={guardarNombreProveedor}>Guardar</button>
+          </div>
+        )}
       </div>
 
       <div className="metrics" style={{ marginBottom: 12 }}>
@@ -127,7 +197,7 @@ export default function Deuda() {
 
       <div className="periodo-box">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 8 }}>
-          <span style={{ fontSize: 12, fontWeight: 500 }}>Total específico por periodo</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.06em' }}>Total específico por periodo</span>
           <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
             <input type="date" value={fechaIni} onChange={e => setFechaIni(e.target.value)} style={{ width: 'auto', fontSize: 12, padding: '4px 8px' }} />
             <span style={{ fontSize: 11, color: 'var(--text2)' }}>al</span>
@@ -137,40 +207,66 @@ export default function Deuda() {
         </div>
         {periodoTotal !== null && (
           <div>
-            <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 8 }}>Total comprado en el periodo:</div>
+            <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 8 }}>Total comprado en el periodo:</div>
             <div className="periodo-result-num">${periodoTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
           </div>
         )}
       </div>
 
-      <div className="sec">Compras a este proveedor</div>
-      <div className="card" style={{ marginBottom: 12 }}>
-        {compras.length === 0 && <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--text2)' }}>Sin compras registradas</div>}
-        {compras.map(c => (
-          <div key={c.id} className="row no-hover" style={{ cursor: 'default' }}>
-            <div className="ri">
-              <div className="rn">{c.descripcion || 'Compra'} · {new Date(c.creado_en).toLocaleDateString('es-MX')}</div>
-              {c.notas && <div className="rs">{c.notas}</div>}
-            </div>
-            <div className="ra">
-              <div className="amt red" style={{ fontFamily: 'var(--mono)' }}>${c.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
-            </div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div className="sec" style={{ margin: 0 }}>Compras a este proveedor</div>
+        <button className="btn btn-sm btn-p" onClick={() => setCompraForm(v => !v)}>+ Registrar compra</button>
+      </div>
+
+      {compraForm && (
+        <div className="abono-form" style={{ marginBottom: 12 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Nueva compra</div>
+          <div className="inp-row"><label>Descripción</label><input value={nuevaCompraDesc} onChange={e => setNuevaCompraDesc(e.target.value)} placeholder="Ej: Tela seda natural, rollos varios..." /></div>
+          <div className="g2">
+            <div className="inp-row"><label>Monto total</label><input value={nuevaCompraMonto} onChange={e => setNuevaCompraMonto(e.target.value)} placeholder="0.00" /></div>
+            <div className="inp-row"><label>Fecha de la compra</label><input type="date" value={nuevaCompraFecha} onChange={e => setNuevaCompraFecha(e.target.value)} /></div>
           </div>
+          <div style={{ display: 'flex', gap: 6 }}>
+            <button className="btn btn-sm" onClick={() => setCompraForm(false)}>Cancelar</button>
+            <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={guardarCompra}>Guardar compra</button>
+          </div>
+        </div>
+      )}
+
+      <div className="card" style={{ marginBottom: 12 }}>
+        {compras.length === 0 && <div style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text2)' }}>Sin compras registradas</div>}
+        {compras.map(c => (
+          editandoCompra?.id === c.id ? (
+            <div key={c.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+              <div className="inp-row"><label>Descripción</label><input value={editandoCompra.descripcion} onChange={e => setEditandoCompra(v => ({ ...v, descripcion: e.target.value }))} /></div>
+              <div className="g2">
+                <div className="inp-row"><label>Monto</label><input value={editandoCompra.total} onChange={e => setEditandoCompra(v => ({ ...v, total: e.target.value }))} /></div>
+                <div className="inp-row"><label>Fecha</label><input type="date" value={editandoCompra.fecha_edit} onChange={e => setEditandoCompra(v => ({ ...v, fecha_edit: e.target.value }))} /></div>
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-sm" onClick={() => setEditandoCompra(null)}>Cancelar</button>
+                <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={guardarEdicionCompra}>Guardar cambios</button>
+              </div>
+            </div>
+          ) : (
+            <div key={c.id} className="row no-hover" style={{ cursor: 'default' }}>
+              <div className="ri">
+                <div className="rn">{c.descripcion || 'Compra'}</div>
+                <div className="rs">{new Date(c.creado_en).toLocaleDateString('es-MX')}</div>
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div className="amt red">${c.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+                <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--blue)', padding: '3px 8px' }} onClick={() => setEditandoCompra({ ...c, fecha_edit: c.creado_en.split('T')[0] })}>Editar</button>
+                <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--red)', padding: '3px 8px' }} onClick={() => eliminarCompra(c.id)}>Eliminar</button>
+              </div>
+            </div>
+          )
         ))}
       </div>
-      <button className="btn btn-f" style={{ fontSize: 12, marginBottom: 12 }} onClick={async () => {
-        const desc = prompt('Descripción de la compra:')
-        if (!desc) return
-        const total = parseFloat(prompt('Monto total:'))
-        if (!total) return
-        await supabase.from('compras_proveedores').insert({ proveedor_id: detalle.id, descripcion: desc, total })
-        verDetalle(detalle)
-        loadProveedores()
-      }}>+ Registrar compra</button>
 
       <div className="sec">Mis abonos a este proveedor</div>
       <div className="card" style={{ marginBottom: 8 }}>
-        {abonos.length === 0 && <div style={{ padding: '12px 14px', fontSize: 13, color: 'var(--text2)' }}>Sin abonos registrados</div>}
+        {abonos.length === 0 && <div style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text2)' }}>Sin abonos registrados</div>}
         {abonos.map(a => (
           <div key={a.id} className="row no-hover" style={{ cursor: 'default' }}>
             <div className={`abono-icon ${a.forma_pago === 'transferencia' ? 'ic-t' : a.forma_pago === 'efectivo' ? 'ic-e' : 'ic-d'}`}>
@@ -185,7 +281,7 @@ export default function Deuda() {
               {!a.foto_url && <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => agregarFotoAbono(a.id, e)} />}
             </label>
             <div className="ra" style={{ marginLeft: 6 }}>
-              <div className="amt green" style={{ fontFamily: 'var(--mono)' }}>+${a.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+              <div className="amt green">+${a.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
             </div>
           </div>
         ))}
@@ -193,7 +289,7 @@ export default function Deuda() {
 
       {abonoForm && (
         <div className="abono-form">
-          <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 10 }}>Registrar abono a proveedor</div>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Registrar abono a proveedor</div>
           <div className="inp-row">
             <label>Tipo de abono</label>
             <select value={tipoAbono} onChange={e => setTipoAbono(e.target.value)}>
@@ -237,7 +333,7 @@ export default function Deuda() {
           </div>
         </div>
       )}
-      <button className="btn btn-p btn-f" style={{ fontSize: 12 }} onClick={() => setAbonoForm(true)}>+ Registrar abono</button>
+      <button className="btn btn-p btn-f" style={{ fontSize: 13 }} onClick={() => setAbonoForm(true)}>+ Registrar abono</button>
     </div>
   )
 
@@ -263,14 +359,14 @@ export default function Deuda() {
                 <div className="rs">{p.telefono || 'Sin teléfono'}</div>
               </div>
               <div className="ra">
-                <div className="amt red" style={{ fontFamily: 'var(--mono)' }}>${saldo.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+                <div className="amt red">${saldo.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
                 <div className="amt-l">pendiente</div>
               </div>
             </div>
           )
         })}
       </div>
-      <button className="btn btn-p btn-f" style={{ fontSize: 12 }} onClick={async () => {
+      <button className="btn btn-p btn-f" style={{ fontSize: 13 }} onClick={async () => {
         const nombre = prompt('Nombre del proveedor:')
         if (!nombre) return
         const tel = prompt('Teléfono (opcional):') || ''
