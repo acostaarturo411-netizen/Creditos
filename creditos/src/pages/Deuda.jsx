@@ -6,9 +6,13 @@ export default function Deuda() {
   const [saldos, setSaldos] = useState({})
   const [detalle, setDetalle] = useState(null)
   const [compras, setCompras] = useState([])
-  const [saldosCompra, setSaldosCompra] = useState({})
+  const [saldosCompras, setSaldosCompras] = useState({})
   const [abonos, setAbonos] = useState([])
   const [abonoForm, setAbonoForm] = useState(false)
+  const [editandoAbono, setEditandoAbono] = useState(null)
+  const [tipoAbono, setTipoAbono] = useState('general')
+  const [comprasSeleccionadas, setComprasSeleccionadas] = useState([])
+  const [distribucion, setDistribucion] = useState({})
   const [montoAbono, setMontoAbono] = useState('')
   const [formaPago, setFormaPago] = useState('transferencia')
   const [fotoUrl, setFotoUrl] = useState(null)
@@ -27,9 +31,6 @@ export default function Deuda() {
   const [nuevaCompraDesc, setNuevaCompraDesc] = useState('')
   const [nuevaCompraMonto, setNuevaCompraMonto] = useState('')
   const [nuevaCompraFecha, setNuevaCompraFecha] = useState(new Date().toISOString().split('T')[0])
-  const [comprasSeleccionadas, setComprasSeleccionadas] = useState([])
-  const [distribucion, setDistribucion] = useState({})
-  const [modoDistribucion, setModoDistribucion] = useState('auto')
 
   useEffect(() => { loadProveedores() }, [])
 
@@ -54,67 +55,31 @@ export default function Deuda() {
     setCompraForm(false)
     setEditandoProveedor(false)
     setEditandoCompra(null)
+    setEditandoAbono(null)
     setPeriodoTotal(null)
     setComprasSeleccionadas([])
     setDistribucion({})
-    const { data: cs } = await supabase.from('compras_proveedores').select('*').eq('proveedor_id', prov.id).order('creado_en', { ascending: true })
-    const { data: as } = await supabase.from('abonos_proveedores').select('*, abonos_proveedores_detalle(*)').eq('proveedor_id', prov.id).order('creado_en', { ascending: false })
+    await recargarDetalle(prov.id)
+  }
+
+  async function recargarDetalle(provId) {
+    const id = provId || detalle?.id
+    if (!id) return
+    const { data: cs } = await supabase.from('compras_proveedores').select('*').eq('proveedor_id', id).order('creado_en', { ascending: true })
+    const { data: as } = await supabase.from('abonos_proveedores').select('*, abonos_proveedores_detalle(*)').eq('proveedor_id', id).order('creado_en', { ascending: false })
     const { data: detalles } = await supabase.from('abonos_proveedores_detalle').select('compra_id, monto')
-    const saldoMap = {}
-    cs?.forEach(c => { saldoMap[c.id] = { total: c.total, abonado: 0 } })
-    detalles?.forEach(d => { if (saldoMap[d.compra_id]) saldoMap[d.compra_id].abonado += d.monto })
-    setSaldosCompra(saldoMap)
+    const saldosPorCompra = {}
+    cs?.forEach(c => { saldosPorCompra[c.id] = c.total })
+    detalles?.forEach(d => { if (saldosPorCompra[d.compra_id] !== undefined) saldosPorCompra[d.compra_id] -= d.monto })
+    setSaldosCompras(saldosPorCompra)
     setCompras(cs || [])
     setAbonos(as || [])
-  }
-
-  function getSaldoCompra(compraId) {
-    const s = saldosCompra[compraId]
-    if (!s) return 0
-    return Math.max(0, s.total - s.abonado)
-  }
-
-  function toggleCompra(compraId) {
-    setComprasSeleccionadas(prev => {
-      if (prev.includes(compraId)) {
-        const next = prev.filter(id => id !== compraId)
-        setDistribucion(d => { const nd = { ...d }; delete nd[compraId]; return nd })
-        return next
-      }
-      return [...prev, compraId]
-    })
-  }
-
-  function distribuirAuto(monto) {
-    const ordenadas = compras.filter(c => comprasSeleccionadas.includes(c.id) && getSaldoCompra(c.id) > 0)
-      .sort((a, b) => new Date(a.creado_en) - new Date(b.creado_en))
-    let restante = parseFloat(monto) || 0
-    const dist = {}
-    for (const c of ordenadas) {
-      const saldo = getSaldoCompra(c.id)
-      const aplicar = Math.min(saldo, restante)
-      if (aplicar > 0) dist[c.id] = aplicar.toFixed(2)
-      restante -= aplicar
-      if (restante <= 0) break
-    }
-    setDistribucion(dist)
-  }
-
-  function onMontoChange(val) {
-    setMontoAbono(val)
-    if (modoDistribucion === 'auto' && comprasSeleccionadas.length > 0) {
-      distribuirAuto(val.replace(/[^0-9.]/g, ''))
-    }
-  }
-
-  function onDistManual(compraId, val) {
-    setDistribucion(prev => ({ ...prev, [compraId]: val }))
   }
 
   async function guardarNombreProveedor() {
     if (!nombreEditProv.trim()) return
     await supabase.from('proveedores').update({ nombre: nombreEditProv.trim(), telefono: telEditProv }).eq('id', detalle.id)
-    setDetalle(prev => ({ ...prev, nombre: nombreEditProv.trim(), telefono: telEditProv }))
+    setDetalle({ ...detalle, nombre: nombreEditProv.trim(), telefono: telEditProv })
     setEditandoProveedor(false)
     loadProveedores()
   }
@@ -122,11 +87,11 @@ export default function Deuda() {
   async function guardarCompra() {
     const monto = parseFloat(nuevaCompraMonto.replace(/[^0-9.]/g, ''))
     if (!nuevaCompraDesc.trim() || !monto) return alert('Ingresa descripción y monto')
-    const fecha = nuevaCompraFecha ? new Date(nuevaCompraFecha + 'T12:00:00').toISOString() : new Date().toISOString()
+    const fecha = new Date(nuevaCompraFecha + 'T12:00:00').toISOString()
     await supabase.from('compras_proveedores').insert({ proveedor_id: detalle.id, descripcion: nuevaCompraDesc.trim(), total: monto, creado_en: fecha })
     setNuevaCompraDesc(''); setNuevaCompraMonto(''); setNuevaCompraFecha(new Date().toISOString().split('T')[0])
     setCompraForm(false)
-    verDetalle(detalle)
+    await recargarDetalle()
     loadProveedores()
   }
 
@@ -134,17 +99,99 @@ export default function Deuda() {
     if (!editandoCompra) return
     const monto = parseFloat(String(editandoCompra.total).replace(/[^0-9.]/g, ''))
     if (!monto) return alert('Ingresa un monto válido')
-    const fecha = editandoCompra.fecha_edit ? new Date(editandoCompra.fecha_edit + 'T12:00:00').toISOString() : editandoCompra.creado_en
+    const fecha = new Date(editandoCompra.fecha_edit + 'T12:00:00').toISOString()
     await supabase.from('compras_proveedores').update({ descripcion: editandoCompra.descripcion, total: monto, creado_en: fecha }).eq('id', editandoCompra.id)
     setEditandoCompra(null)
-    verDetalle(detalle)
+    await recargarDetalle()
     loadProveedores()
   }
 
   async function eliminarCompra(id) {
-    if (!confirm('¿Eliminar esta compra?')) return
-    await supabase.from('compras_proveedores').delete().eq('id', id)
-    verDetalle(detalle)
+    if (!confirm('¿Eliminar esta compra? También se eliminarán los abonos asociados a ella.')) return
+    await supabase.from('abonos_proveedores_detalle').delete().eq('compra_id', id)
+    const { error } = await supabase.from('compras_proveedores').delete().eq('id', id)
+    if (error) { alert('Error al eliminar: ' + error.message); return }
+    await recargarDetalle()
+    loadProveedores()
+  }
+
+  async function eliminarAbono(abono) {
+    if (!confirm('¿Eliminar este abono? El saldo se recalculará automáticamente.')) return
+    await supabase.from('abonos_proveedores_detalle').delete().eq('abono_id', abono.id)
+    await supabase.from('abonos_proveedores').delete().eq('id', abono.id)
+    await recargarDetalle()
+    loadProveedores()
+  }
+
+  async function guardarEdicionAbono() {
+    if (!editandoAbono) return
+    const monto = parseFloat(String(editandoAbono.monto).replace(/[^0-9.]/g, ''))
+    if (!monto) return alert('Ingresa un monto válido')
+    await supabase.from('abonos_proveedores').update({
+      monto,
+      forma_pago: editandoAbono.forma_pago,
+    }).eq('id', editandoAbono.id)
+    setEditandoAbono(null)
+    await recargarDetalle()
+    loadProveedores()
+  }
+
+  function toggleCompraSeleccionada(compra) {
+    const ya = comprasSeleccionadas.find(c => c.id === compra.id)
+    if (ya) {
+      setComprasSeleccionadas(prev => prev.filter(c => c.id !== compra.id))
+      setDistribucion(prev => { const n = { ...prev }; delete n[compra.id]; return n })
+    } else {
+      setComprasSeleccionadas(prev => [...prev, compra])
+    }
+  }
+
+  function distribuirAutomatico(monto) {
+    let restante = monto
+    const nuevaDist = {}
+    const ordenadas = [...comprasSeleccionadas].sort((a, b) => new Date(a.creado_en) - new Date(b.creado_en))
+    for (const c of ordenadas) {
+      const saldo = Math.max(0, saldosCompras[c.id] || 0)
+      const aplicar = Math.min(restante, saldo)
+      nuevaDist[c.id] = aplicar.toFixed(2)
+      restante -= aplicar
+      if (restante <= 0) break
+    }
+    setDistribucion(nuevaDist)
+  }
+
+  function onMontoChange(val) {
+    setMontoAbono(val)
+    if (tipoAbono === 'multiple' && comprasSeleccionadas.length > 0) {
+      const monto = parseFloat(val.replace(/[^0-9.]/g, '')) || 0
+      distribuirAutomatico(monto)
+    }
+  }
+
+  async function confirmarAbono() {
+    const monto = parseFloat(montoAbono.replace(/[^0-9.]/g, ''))
+    if (!monto || monto <= 0) return alert('Ingresa un monto válido')
+    if (tipoAbono === 'multiple' && comprasSeleccionadas.length === 0) return alert('Selecciona al menos una compra')
+    const { data: abono } = await supabase.from('abonos_proveedores').insert({
+      proveedor_id: detalle.id,
+      compra_id: null,
+      tipo: tipoAbono,
+      forma_pago: formaPago,
+      monto,
+      foto_url: fotoUrl
+    }).select().single()
+    if (tipoAbono === 'multiple' && abono) {
+      const detalles = comprasSeleccionadas.map(c => ({
+        abono_id: abono.id,
+        compra_id: c.id,
+        monto: parseFloat(distribucion[c.id] || 0)
+      })).filter(d => d.monto > 0)
+      if (detalles.length > 0) await supabase.from('abonos_proveedores_detalle').insert(detalles)
+    }
+    setMontoAbono(''); setFotoUrl(null); setFotoLabel('+ Agregar foto de voucher'); setFotoOk(false)
+    setComprasSeleccionadas([]); setDistribucion({})
+    setAbonoForm(false)
+    await recargarDetalle()
     loadProveedores()
   }
 
@@ -172,31 +219,7 @@ export default function Deuda() {
     const path = await subirFoto(file)
     if (!path) return
     await supabase.from('abonos_proveedores').update({ foto_url: path }).eq('id', abonoId)
-    verDetalle(detalle)
-  }
-
-  async function confirmarAbono() {
-    const monto = parseFloat(montoAbono.replace(/[^0-9.]/g, ''))
-    if (!monto || monto <= 0) return alert('Ingresa un monto válido')
-    const { data: abono, error } = await supabase.from('abonos_proveedores').insert({
-      proveedor_id: detalle.id,
-      tipo: comprasSeleccionadas.length > 0 ? 'especifico' : 'general',
-      forma_pago: formaPago,
-      monto,
-      foto_url: fotoUrl
-    }).select().single()
-    if (error) return alert('Error al guardar abono')
-    if (comprasSeleccionadas.length > 0) {
-      const detalles = Object.entries(distribucion)
-        .filter(([, v]) => parseFloat(v) > 0)
-        .map(([compra_id, v]) => ({ abono_id: abono.id, compra_id, monto: parseFloat(v) }))
-      if (detalles.length > 0) await supabase.from('abonos_proveedores_detalle').insert(detalles)
-    }
-    setMontoAbono(''); setFotoUrl(null); setFotoLabel('+ Agregar foto de voucher'); setFotoOk(false)
-    setComprasSeleccionadas([]); setDistribucion({})
-    setAbonoForm(false)
-    verDetalle(detalle)
-    loadProveedores()
+    await recargarDetalle()
   }
 
   function calcPeriodo() {
@@ -254,7 +277,7 @@ export default function Deuda() {
         </div>
         {periodoTotal !== null && (
           <div>
-            <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 8 }}>Total comprado en el periodo:</div>
+            <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 8 }}>Total en el periodo:</div>
             <div className="periodo-result-num">${periodoTotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
           </div>
         )}
@@ -283,8 +306,8 @@ export default function Deuda() {
       <div className="card" style={{ marginBottom: 12 }}>
         {compras.length === 0 && <div style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text2)' }}>Sin compras registradas</div>}
         {compras.map(c => {
-          const saldoC = getSaldoCompra(c.id)
-          const liquidada = saldoC === 0 && (saldosCompra[c.id]?.abonado || 0) > 0
+          const saldoC = saldosCompras[c.id] !== undefined ? saldosCompras[c.id] : c.total
+          const liquidada = saldoC <= 0
           return editandoCompra?.id === c.id ? (
             <div key={c.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
               <div className="inp-row"><label>Descripción</label><input value={editandoCompra.descripcion} onChange={e => setEditandoCompra(v => ({ ...v, descripcion: e.target.value }))} /></div>
@@ -298,21 +321,17 @@ export default function Deuda() {
               </div>
             </div>
           ) : (
-            <div key={c.id} className="row no-hover" style={{ cursor: 'default', opacity: liquidada ? 0.7 : 1 }}>
+            <div key={c.id} className="row no-hover" style={{ cursor: 'default', opacity: liquidada ? 0.75 : 1 }}>
               <div className="ri">
                 <div className="rn" style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
                   {c.descripcion || 'Compra'}
-                  {liquidada && <span style={{ background: '#14532d', color: '#4ade80', fontSize: 10, padding: '2px 8px', borderRadius: 20, fontWeight: 700 }}>LIQUIDADA</span>}
+                  {liquidada && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-bg)', color: 'var(--green)' }}>LIQUIDADA</span>}
                 </div>
                 <div className="rs">{new Date(c.creado_en).toLocaleDateString('es-MX')} · Total: ${c.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
-                {!liquidada && (saldosCompra[c.id]?.abonado || 0) > 0 && (
-                  <div style={{ fontSize: 11, color: '#fbbf24', marginTop: 2 }}>
-                    Abonado: ${(saldosCompra[c.id]?.abonado || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })} · Pendiente: ${saldoC.toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                  </div>
-                )}
+                {!liquidada && <div style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginTop: 2 }}>Pendiente: ${Math.max(0, saldoC).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                {!liquidada && <div className="amt red">${saldoC.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+                {liquidada ? <div className="amt green">$0.00</div> : <div className="amt red">${Math.max(0, saldoC).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>}
                 <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--blue)', padding: '3px 8px' }} onClick={() => setEditandoCompra({ ...c, fecha_edit: c.creado_en.split('T')[0] })}>Editar</button>
                 <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--red)', padding: '3px 8px' }} onClick={() => eliminarCompra(c.id)}>Eliminar</button>
               </div>
@@ -325,34 +344,96 @@ export default function Deuda() {
       <div className="card" style={{ marginBottom: 8 }}>
         {abonos.length === 0 && <div style={{ padding: '12px 16px', fontSize: 13, color: 'var(--text2)' }}>Sin abonos registrados</div>}
         {abonos.map(a => (
-          <div key={a.id} className="row no-hover" style={{ cursor: 'default' }}>
-            <div className={`abono-icon ${a.forma_pago === 'transferencia' ? 'ic-t' : a.forma_pago === 'efectivo' ? 'ic-e' : 'ic-d'}`}>
-              {a.forma_pago === 'transferencia' ? '⇄' : a.forma_pago === 'efectivo' ? '$' : '↓'}
-            </div>
-            <div className="ri">
-              <div className="rn">{a.forma_pago.charAt(0).toUpperCase() + a.forma_pago.slice(1)} <span className={`tag ${a.tipo === 'general' ? 'tag-gral' : 'tag-esp'}`}>{a.tipo === 'general' ? 'Al total' : 'Compras específicas'}</span></div>
-              <div className="rs">{new Date(a.creado_en).toLocaleDateString('es-MX')} {new Date(a.creado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</div>
-              {a.abonos_proveedores_detalle?.length > 0 && (
-                <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 2 }}>
-                  Distribuido en {a.abonos_proveedores_detalle.length} compra{a.abonos_proveedores_detalle.length > 1 ? 's' : ''}
+          editandoAbono?.id === a.id ? (
+            <div key={a.id} style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Editar abono</div>
+              <div className="g2">
+                <div className="inp-row"><label>Monto</label><input value={editandoAbono.monto} onChange={e => setEditandoAbono(v => ({ ...v, monto: e.target.value }))} /></div>
+                <div className="inp-row">
+                  <label>Forma de pago</label>
+                  <select value={editandoAbono.forma_pago} onChange={e => setEditandoAbono(v => ({ ...v, forma_pago: e.target.value }))}>
+                    <option value="transferencia">Transferencia</option>
+                    <option value="efectivo">Efectivo</option>
+                    <option value="deposito">Depósito</option>
+                  </select>
                 </div>
-              )}
+              </div>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-sm" onClick={() => setEditandoAbono(null)}>Cancelar</button>
+                <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={guardarEdicionAbono}>Guardar cambios</button>
+              </div>
             </div>
-            <label className={`ev-thumb${a.foto_url ? ' has' : ''}`} title={a.foto_url ? 'Ver evidencia' : 'Agregar foto'}>
-              {a.foto_url ? 'IMG' : '+'}
-              {!a.foto_url && <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => agregarFotoAbono(a.id, e)} />}
-            </label>
-            <div className="ra" style={{ marginLeft: 6 }}>
-              <div className="amt green">+${a.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+          ) : (
+            <div key={a.id} className="row no-hover" style={{ cursor: 'default' }}>
+              <div className={`abono-icon ${a.forma_pago === 'transferencia' ? 'ic-t' : a.forma_pago === 'efectivo' ? 'ic-e' : 'ic-d'}`}>
+                {a.forma_pago === 'transferencia' ? '⇄' : a.forma_pago === 'efectivo' ? '$' : '↓'}
+              </div>
+              <div className="ri">
+                <div className="rn">
+                  {a.forma_pago.charAt(0).toUpperCase() + a.forma_pago.slice(1)}{' '}
+                  <span className={`tag ${a.tipo === 'general' ? 'tag-gral' : 'tag-esp'}`}>
+                    {a.tipo === 'general' ? 'Al total' : a.tipo === 'multiple' ? `${a.abonos_proveedores_detalle?.length || 0} compras` : 'Compra esp.'}
+                  </span>
+                </div>
+                <div className="rs">{new Date(a.creado_en).toLocaleDateString('es-MX')} {new Date(a.creado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</div>
+              </div>
+              <label className={`ev-thumb${a.foto_url ? ' has' : ''}`} title={a.foto_url ? 'Ver evidencia' : 'Agregar foto'}>
+                {a.foto_url ? 'IMG' : '+'}
+                {!a.foto_url && <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => agregarFotoAbono(a.id, e)} />}
+              </label>
+              <div className="ra" style={{ marginLeft: 6 }}>
+                <div className="amt green">+${a.monto.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+                <div style={{ display: 'flex', gap: 4, marginTop: 4, justifyContent: 'flex-end' }}>
+                  <button className="btn btn-sm" style={{ fontSize: 10, color: 'var(--blue)', padding: '2px 6px' }} onClick={() => setEditandoAbono({ ...a })}>Editar</button>
+                  <button className="btn btn-sm" style={{ fontSize: 10, color: 'var(--red)', padding: '2px 6px' }} onClick={() => eliminarAbono(a)}>Eliminar</button>
+                </div>
+              </div>
             </div>
-          </div>
+          )
         ))}
       </div>
 
       {abonoForm && (
         <div className="abono-form">
-          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Registrar abono</div>
-          <div className="g2" style={{ marginBottom: 10 }}>
+          <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Registrar abono a proveedor</div>
+          <div className="inp-row">
+            <label>Tipo de abono</label>
+            <select value={tipoAbono} onChange={e => { setTipoAbono(e.target.value); setComprasSeleccionadas([]); setDistribucion({}) }}>
+              <option value="general">Al total general</option>
+              <option value="multiple">A compras específicas</option>
+            </select>
+          </div>
+          {tipoAbono === 'multiple' && (
+            <div style={{ marginBottom: 10 }}>
+              <div style={{ fontSize: 12, color: 'var(--text2)', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.04em' }}>Selecciona las compras</div>
+              {compras.filter(c => (saldosCompras[c.id] || 0) > 0).map(c => {
+                const sel = comprasSeleccionadas.find(x => x.id === c.id)
+                return (
+                  <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '7px 10px', borderRadius: 8, marginBottom: 4, background: sel ? 'var(--blue-bg)' : 'var(--topbar)', cursor: 'pointer', border: `1px solid ${sel ? 'rgba(96,165,250,0.3)' : 'var(--border-md)'}` }} onClick={() => toggleCompraSeleccionada(c)}>
+                    <div style={{ width: 16, height: 16, borderRadius: 4, border: `2px solid ${sel ? 'var(--blue)' : 'var(--text2)'}`, background: sel ? 'var(--blue)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                      {sel && <span style={{ color: '#111', fontSize: 11, fontWeight: 700 }}>✓</span>}
+                    </div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)' }}>{c.descripcion}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text2)' }}>{new Date(c.creado_en).toLocaleDateString('es-MX')} · Pendiente: ${Math.max(0, saldosCompras[c.id] || 0).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+                    </div>
+                  </div>
+                )
+              })}
+              {comprasSeleccionadas.length > 0 && Object.keys(distribucion).length > 0 && (
+                <div style={{ marginTop: 10, padding: '10px 12px', background: 'var(--topbar)', borderRadius: 8, border: '1px solid var(--border-md)' }}>
+                  <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', marginBottom: 8, textTransform: 'uppercase', letterSpacing: '.04em' }}>Distribución (editable)</div>
+                  {comprasSeleccionadas.sort((a, b) => new Date(a.creado_en) - new Date(b.creado_en)).map(c => (
+                    <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 6 }}>
+                      <div style={{ flex: 1, fontSize: 12, color: 'var(--text)' }}>{c.descripcion}</div>
+                      <input type="number" value={distribucion[c.id] || 0} onChange={e => setDistribucion(prev => ({ ...prev, [c.id]: e.target.value }))} style={{ width: 100, fontSize: 13 }} min="0" step="0.01" />
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          <div className="g2">
             <div className="inp-row">
               <label>Monto total del abono</label>
               <input value={montoAbono} onChange={e => onMontoChange(e.target.value)} placeholder="0.00" />
@@ -366,50 +447,11 @@ export default function Deuda() {
               </select>
             </div>
           </div>
-
-          <div style={{ fontSize: 12, fontWeight: 700, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '.05em', marginBottom: 6 }}>
-            Aplicar a compras (selecciona una o más)
-          </div>
-          <div style={{ marginBottom: 8, display: 'flex', gap: 6 }}>
-            <button className={`btn btn-sm${modoDistribucion === 'auto' ? ' btn-p' : ''}`} onClick={() => { setModoDistribucion('auto'); distribuirAuto(montoAbono.replace(/[^0-9.]/g, '')) }}>Auto (más antigua primero)</button>
-            <button className={`btn btn-sm${modoDistribucion === 'manual' ? ' btn-p' : ''}`} onClick={() => setModoDistribucion('manual')}>Manual</button>
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 10 }}>
-            {compras.filter(c => getSaldoCompra(c.id) > 0).map(c => (
-              <div key={c.id} style={{ background: comprasSeleccionadas.includes(c.id) ? 'var(--blue-bg)' : 'var(--topbar)', borderRadius: 8, padding: '8px 12px', border: `1px solid ${comprasSeleccionadas.includes(c.id) ? 'rgba(96,165,250,0.3)' : 'var(--border-md)'}`, cursor: 'pointer' }}
-                onClick={() => toggleCompra(c.id)}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div>
-                    <div style={{ fontSize: 13, fontWeight: 600, color: comprasSeleccionadas.includes(c.id) ? 'var(--blue)' : 'var(--text)' }}>{c.descripcion}</div>
-                    <div style={{ fontSize: 11, color: 'var(--text2)' }}>{new Date(c.creado_en).toLocaleDateString('es-MX')} · Pendiente: ${getSaldoCompra(c.id).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
-                  </div>
-                  <div style={{ width: 18, height: 18, borderRadius: 4, border: `2px solid ${comprasSeleccionadas.includes(c.id) ? 'var(--blue)' : 'var(--border-md)'}`, background: comprasSeleccionadas.includes(c.id) ? 'var(--blue)' : 'transparent', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {comprasSeleccionadas.includes(c.id) && <span style={{ color: '#fff', fontSize: 12, fontWeight: 700 }}>✓</span>}
-                  </div>
-                </div>
-                {comprasSeleccionadas.includes(c.id) && modoDistribucion === 'manual' && (
-                  <div style={{ marginTop: 8 }} onClick={e => e.stopPropagation()}>
-                    <input value={distribucion[c.id] || ''} onChange={e => onDistManual(c.id, e.target.value)} placeholder="Monto a aplicar" style={{ fontSize: 13 }} />
-                  </div>
-                )}
-                {comprasSeleccionadas.includes(c.id) && modoDistribucion === 'auto' && distribucion[c.id] && (
-                  <div style={{ marginTop: 6, fontSize: 12, color: 'var(--green)', fontWeight: 600 }}>
-                    Se aplicarán: ${parseFloat(distribucion[c.id]).toLocaleString('es-MX', { minimumFractionDigits: 2 })}
-                  </div>
-                )}
-              </div>
-            ))}
-            {compras.filter(c => getSaldoCompra(c.id) > 0).length === 0 && (
-              <div style={{ fontSize: 12, color: 'var(--text2)', padding: '8px 0' }}>Todas las compras están liquidadas</div>
-            )}
-          </div>
-
           <label className={`foto-upload${fotoOk ? ' ok' : ''}`}>
             {uploading ? 'Subiendo foto...' : fotoLabel}
             <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleFotoChange} />
           </label>
-          <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>También puedes agregar la foto después</div>
+          <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>También puedes agregar la foto después desde el historial</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
             <button className="btn btn-sm" onClick={() => { setAbonoForm(false); setComprasSeleccionadas([]); setDistribucion({}) }}>Cancelar</button>
             <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={confirmarAbono} disabled={uploading}>
@@ -418,7 +460,7 @@ export default function Deuda() {
           </div>
         </div>
       )}
-      <button className="btn btn-p btn-f" style={{ fontSize: 13 }} onClick={() => setAbonoForm(true)}>+ Registrar abono</button>
+      <button className="btn btn-p btn-f" style={{ fontSize: 13 }} onClick={() => { setAbonoForm(true); setEditandoAbono(null) }}>+ Registrar abono</button>
     </div>
   )
 
