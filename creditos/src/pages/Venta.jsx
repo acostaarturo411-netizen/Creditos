@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { imprimirTicketVenta } from '../lib/impresora'
 
 export default function Venta() {
   const [clientes, setClientes] = useState([])
@@ -17,7 +18,7 @@ export default function Venta() {
   const [genDesc, setGenDesc] = useState('')
   const [genCant, setGenCant] = useState(1)
   const [genPrecio, setGenPrecio] = useState('')
-  const [ticketModificar, setTicketModificar] = useState(null)
+  const [imprimiendo, setImprimiendo] = useState(false)
   const busqRef = useRef(null)
   const cantRef = useRef(null)
 
@@ -107,21 +108,23 @@ export default function Venta() {
     setGenericoOpen(false)
   }
 
-  function quitarItem(id) {
-    setItems(prev => prev.filter(i => i.id !== id))
-  }
+  function quitarItem(id) { setItems(prev => prev.filter(i => i.id !== id)) }
 
   const total = items.reduce((s, i) => s + i.subtotal, 0)
   const totalHoy = ventasHoy.reduce((s, t) => s + t.total, 0)
+  const clienteNombre = clientes.find(c => c.id === clienteId)?.nombre || ''
 
-  async function confirmarVenta() {
-    if (!clienteId || items.length === 0) return alert('Selecciona un cliente y agrega productos')
+  async function guardarTicket() {
+    if (!clienteId || items.length === 0) {
+      alert('Selecciona un cliente y agrega productos')
+      return null
+    }
     const { data: ticket, error } = await supabase
       .from('tickets')
       .insert({ cliente_id: clienteId, total })
       .select()
       .single()
-    if (error) return alert('Error al guardar: ' + error.message)
+    if (error) { alert('Error al guardar: ' + error.message); return null }
     const lineas = items.map(i => ({
       ticket_id: ticket.id,
       descripcion: i.descripcion,
@@ -131,10 +134,51 @@ export default function Venta() {
       subtotal: i.subtotal
     }))
     await supabase.from('ticket_items').insert(lineas)
-    setItems([])
-    setClienteId('')
+    return ticket
+  }
+
+  async function solocobrar() {
+    const ticket = await guardarTicket()
+    if (!ticket) return
+    setItems([]); setClienteId('')
     loadVentasHoy()
     alert(`Ticket #${ticket.numero} guardado y enviado a Créditos`)
+  }
+
+  async function cobrarEImprimir() {
+    const ticket = await guardarTicket()
+    if (!ticket) return
+    setImprimiendo(true)
+    try {
+      await imprimirTicketVenta({
+        numero: ticket.numero,
+        cliente: clienteNombre,
+        fecha: ticket.creado_en,
+        items,
+        total
+      })
+    } catch (err) {
+      alert('Ticket guardado pero error al imprimir: ' + err.message + '\n\nVerifica que QZ Tray esté corriendo.')
+    }
+    setImprimiendo(false)
+    setItems([]); setClienteId('')
+    loadVentasHoy()
+  }
+
+  async function imprimirVentaExistente(venta) {
+    setImprimiendo(true)
+    try {
+      await imprimirTicketVenta({
+        numero: venta.numero,
+        cliente: venta.clientes?.nombre || '',
+        fecha: venta.creado_en,
+        items: venta.ticket_items || [],
+        total: venta.total
+      })
+    } catch (err) {
+      alert('Error al imprimir: ' + err.message + '\n\nVerifica que QZ Tray esté corriendo.')
+    }
+    setImprimiendo(false)
   }
 
   const prodsFiltrados = productos.filter(p => p.nombre.toLowerCase().includes(busqQuery.toLowerCase()))
@@ -169,9 +213,7 @@ export default function Venta() {
               <button className="btn btn-p" style={{ flex: 1, fontSize: 12 }} onClick={abrirBuscador}>
                 Buscar producto <span className="kbd">F10</span>
               </button>
-              <button className="btn" style={{ fontSize: 12 }} onClick={() => setGenericoOpen(v => !v)}>
-                + Genérico
-              </button>
+              <button className="btn" style={{ fontSize: 12 }} onClick={() => setGenericoOpen(v => !v)}>+ Genérico</button>
             </div>
             {genericoOpen && (
               <div style={{ background: 'var(--surface2)', borderRadius: 'var(--radius)', padding: 10, marginBottom: 8 }}>
@@ -198,10 +240,9 @@ export default function Venta() {
                   </div>
                   <div className="ra" style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
                     <div className="amt" style={{ fontFamily: 'var(--mono)' }}>${v.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
-                    <div style={{ display: 'flex', gap: 4 }}>
-                      <button className="btn btn-sm" style={{ fontSize: 10 }} onClick={() => window.print()}>Imprimir</button>
-                      <button className="btn btn-sm" style={{ fontSize: 10, color: 'var(--blue)' }} onClick={() => setTicketModificar(v)}>Modificar</button>
-                    </div>
+                    <button className="btn btn-sm" style={{ fontSize: 10 }} onClick={() => imprimirVentaExistente(v)} disabled={imprimiendo}>
+                      {imprimiendo ? '...' : 'Reimprimir'}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -214,9 +255,7 @@ export default function Venta() {
           <div className="card">
             <div className="card-header">
               <span className="card-title">Nuevo ticket</span>
-              <span style={{ fontSize: 11, color: 'var(--text2)' }}>
-                {clientes.find(c => c.id === clienteId)?.nombre || 'Sin cliente'}
-              </span>
+              <span style={{ fontSize: 11, color: 'var(--text2)' }}>{clienteNombre || 'Sin cliente'}</span>
             </div>
             <div style={{ padding: '6px 14px', minHeight: 80 }}>
               {items.length === 0 && <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--text3)' }}>Usa F10 para agregar productos</div>}
@@ -237,8 +276,10 @@ export default function Venta() {
             </div>
           </div>
           <div className="g2">
-            <button className="btn btn-f btn-d" style={{ fontSize: 12 }} onClick={() => setItems([])}>Cancelar</button>
-            <button className="btn btn-p btn-f" style={{ fontSize: 12 }} onClick={confirmarVenta}>Confirmar venta</button>
+            <button className="btn btn-f" style={{ fontSize: 12 }} onClick={solocobrar}>Solo cobrar</button>
+            <button className="btn btn-p btn-f" style={{ fontSize: 12 }} onClick={cobrarEImprimir} disabled={imprimiendo}>
+              {imprimiendo ? 'Imprimiendo...' : 'Cobrar e imprimir'}
+            </button>
           </div>
         </div>
       </div>
@@ -251,26 +292,16 @@ export default function Venta() {
                 <span style={{ fontSize: 14, fontWeight: 500 }}>Buscar producto <span className="kbd">F10</span></span>
                 <button className="btn btn-sm" onClick={() => { setBuscadorOpen(false); setSelProd(null) }}>Cerrar</button>
               </div>
-              <input
-                ref={busqRef}
-                value={busqQuery}
-                onChange={e => { setBusqQuery(e.target.value); setSelProd(null) }}
-                placeholder="Escribe el nombre..."
-                style={{ marginBottom: 8 }}
-              />
+              <input ref={busqRef} value={busqQuery} onChange={e => { setBusqQuery(e.target.value); setSelProd(null) }} placeholder="Escribe el nombre..." style={{ marginBottom: 8 }} />
               <div className="prod-list">
                 {prodsFiltrados.map(p => (
                   <div key={p.id} className={`prod-opt${selProd?.id === p.id ? ' sel' : ''}`} onClick={() => seleccionarProd(p)}>
-                    <span>
-                      <div className="po-name">{p.nombre}</div>
-                      <div className="po-unit">{p.unidad}</div>
-                    </span>
+                    <span><div className="po-name">{p.nombre}</div><div className="po-unit">{p.unidad}</div></span>
                     <span className="po-price">${p.precio.toLocaleString('es-MX')}</span>
                   </div>
                 ))}
                 {prodsFiltrados.length === 0 && <div style={{ padding: '10px', fontSize: 12, color: 'var(--text2)' }}>Sin resultados</div>}
               </div>
-
               {selProd && (
                 <div style={{ borderTop: '1px solid var(--border)', paddingTop: 10 }}>
                   <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 8, color: 'var(--blue)' }}>
@@ -292,7 +323,7 @@ export default function Venta() {
                     </div>
                   </div>
                   <div style={{ fontSize: 11, color: 'var(--text2)', marginBottom: 8 }}>
-                    Subtotal: <strong>${(parseFloat(cantidad) * parseFloat(precioEdit || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong> · Presiona Enter para agregar
+                    Subtotal: <strong>${(parseFloat(cantidad) * parseFloat(precioEdit || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong> · Enter para agregar
                   </div>
                   <button className="btn btn-p btn-f" onClick={agregarDesdeB}>Agregar al ticket</button>
                 </div>
