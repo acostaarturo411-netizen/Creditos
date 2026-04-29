@@ -90,6 +90,15 @@ export default function Creditos() {
     loadClientes()
   }
 
+  async function eliminarTicket(ticket) {
+    if (!confirm(`¿Eliminar el ticket #${ticket.numero}? Esta acción no se puede deshacer.`)) return
+    await supabase.from('abonos_clientes_detalle').delete().eq('ticket_id', ticket.id)
+    await supabase.from('ticket_items').delete().eq('ticket_id', ticket.id)
+    await supabase.from('tickets').delete().eq('id', ticket.id)
+    await recargarDetalle()
+    loadClientes()
+  }
+
   async function eliminarAbono(abono) {
     if (!confirm('¿Eliminar este abono? El saldo se recalculará automáticamente.')) return
     await supabase.from('abonos_clientes_detalle').delete().eq('abono_id', abono.id)
@@ -286,6 +295,7 @@ export default function Creditos() {
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
                 {liquidado ? <div className="amt green">$0.00</div> : <div className="amt red">${Math.max(0, saldoT).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>}
                 <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--blue)', padding: '3px 8px' }} onClick={() => setEditandoTicket({ ...t, fecha_edit: t.creado_en.split('T')[0] })}>Editar</button>
+                <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--red)', padding: '3px 8px' }} onClick={() => eliminarTicket(t)}>Eliminar</button>
               </div>
             </div>
           )

@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase, signInWithGoogle, signOut } from './lib/supabase'
 import Venta from './pages/Venta'
 import Creditos from './pages/Creditos'
 import Deuda from './pages/Deuda'
 import Inventario from './pages/Inventario'
+import Bancos from './pages/Bancos'
 import Exportar from './pages/Exportar'
 
 export default function App() {
@@ -12,28 +13,12 @@ export default function App() {
   const [tab, setTab] = useState('venta')
 
   useEffect(() => {
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session)
-      setLoading(false)
-    })
+    supabase.auth.getSession().then(({ data: { session } }) => { setSession(session); setLoading(false) })
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_e, s) => setSession(s))
     return () => subscription.unsubscribe()
   }, [])
 
-  useEffect(() => {
-    const onKey = (e) => {
-      if (e.key === 'F10') { e.preventDefault(); setTab('venta') }
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [])
-
-  if (loading) return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-      <span style={{ color: 'var(--text2)', fontSize: 13 }}>Cargando...</span>
-    </div>
-  )
-
+  if (loading) return <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><span style={{ color: 'var(--text2)', fontSize: 13 }}>Cargando...</span></div>
   if (!session) return <Login />
 
   const tabs = [
@@ -41,6 +26,7 @@ export default function App() {
     { id: 'creditos', label: 'Créditos' },
     { id: 'deuda', label: 'Deuda' },
     { id: 'inventario', label: 'Inventario' },
+    { id: 'bancos', label: 'Bancos' },
     { id: 'exportar', label: 'Exportar' },
   ]
 
@@ -48,12 +34,10 @@ export default function App() {
     <div className="app">
       <div className="topbar">
         <div className="topbar-left">
-          <span className="logo">CreditOS</span>
+          <span className="logo">Credit<span style={{ color: 'var(--green)' }}>OS</span></span>
           <nav className="nav">
             {tabs.map(t => (
-              <button key={t.id} className={`nav-btn${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>
-                {t.label}
-              </button>
+              <button key={t.id} className={`nav-btn${tab === t.id ? ' active' : ''}`} onClick={() => setTab(t.id)}>{t.label}</button>
             ))}
           </nav>
         </div>
@@ -67,6 +51,7 @@ export default function App() {
         {tab === 'creditos' && <Creditos />}
         {tab === 'deuda' && <Deuda />}
         {tab === 'inventario' && <Inventario />}
+        {tab === 'bancos' && <Bancos />}
         {tab === 'exportar' && <Exportar />}
       </div>
     </div>
@@ -74,18 +59,18 @@ export default function App() {
 }
 
 function Login() {
-  const [email, setEmail] = React.useState('')
-  const [pass, setPass] = React.useState('')
+  const [email, setEmail] = useState('')
+  const [pass, setPass] = useState('')
   return (
     <div className="login-screen">
       <div className="login-card">
-        <div className="login-logo">CreditOS</div>
+        <div className="login-logo">Credit<span style={{ color: '#4ade80' }}>OS</span></div>
         <div className="login-sub">Control de créditos y punto de venta</div>
-        <div className="inp-row"><label>Email</label><input type="email" value={email} onChange={e=>setEmail(e.target.value)}/></div>
-        <div className="inp-row"><label>Contraseña</label><input type="password" value={pass} onChange={e=>setPass(e.target.value)}/></div>
-        <button className="btn btn-p btn-f" onClick={async()=>{
-          const {error} = await supabase.auth.signInWithPassword({email,password:pass})
-          if(error) await supabase.auth.signUp({email,password:pass})
+        <div className="inp-row"><label>Email</label><input type="email" value={email} onChange={e => setEmail(e.target.value)} /></div>
+        <div className="inp-row"><label>Contraseña</label><input type="password" value={pass} onChange={e => setPass(e.target.value)} /></div>
+        <button className="btn btn-p btn-f" style={{ marginTop: 8 }} onClick={async () => {
+          const { error } = await supabase.auth.signInWithPassword({ email, password: pass })
+          if (error) await supabase.auth.signUp({ email, password: pass })
         }}>Entrar</button>
       </div>
     </div>
