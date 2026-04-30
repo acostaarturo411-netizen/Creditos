@@ -239,6 +239,10 @@ export default function Exportar() {
           <div className="inp-row"><label>Nombre del negocio</label><input value={config.nombre_negocio} onChange={e => setConfig(v=>({...v,nombre_negocio:e.target.value}))} placeholder="Mi Negocio" /></div>
           <div className="inp-row"><label>Slogan o subtítulo</label><input value={config.slogan} onChange={e => setConfig(v=>({...v,slogan:e.target.value}))} placeholder="Frase corta opcional" /></div>
           <div className="inp-row"><label>Pie de página</label><input value={config.pie} onChange={e => setConfig(v=>({...v,pie:e.target.value}))} placeholder="Gracias por su preferencia" /></div>
+          <div className="g2">
+            <div className="inp-row"><label>Teléfono (opcional)</label><input value={config.telefono||''} onChange={e => setConfig(v=>({...v,telefono:e.target.value}))} placeholder="444 123 4567" /></div>
+            <div className="inp-row"><label>Tamaño de fuente (6-9)</label><input type="number" value={config.font_size||7} onChange={e => setConfig(v=>({...v,font_size:e.target.value}))} min="6" max="9" step="0.5" /></div>
+          </div>
           <div className="inp-row">
             <label>Logo (imagen)</label>
             <label className={`foto-upload${logoPreview ? ' ok' : ''}`}>

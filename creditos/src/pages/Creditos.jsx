@@ -288,7 +288,14 @@ export default function Creditos() {
                   #{t.numero} · {new Date(t.creado_en).toLocaleDateString('es-MX')}
                   {liquidado && <span style={{ fontSize: 10, fontWeight: 700, padding: '2px 8px', borderRadius: 20, background: 'var(--green-bg)', color: 'var(--green)' }}>LIQUIDADO</span>}
                 </div>
-                <div className="rs">{t.ticket_items?.map(i => i.descripcion).join(', ')}</div>
+                <div className="rs" style={{ marginTop: 4 }}>
+                  {t.ticket_items?.map(i => (
+                    <div key={i.id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: 'var(--text2)', padding: '1px 0' }}>
+                      <span>{i.cantidad} {i.unidad} {i.descripcion}</span>
+                      <span style={{ fontFamily: 'var(--mono)', marginLeft: 8, flexShrink: 0 }}>${parseFloat(i.subtotal || i.cantidad * i.precio_unitario).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</span>
+                    </div>
+                  ))}
+                </div>
                 {!liquidado && <div style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginTop: 2 }}>Pendiente: ${Math.max(0, saldoT).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
