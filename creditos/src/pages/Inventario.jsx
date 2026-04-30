@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 const UNIDADES = ['pieza', 'caja', 'media caja', 'kilo', 'metro', 'litro', 'paquete']
@@ -12,8 +12,18 @@ export default function Inventario() {
   const [unidad, setUnidad] = useState('pieza')
   const [busq, setBusq] = useState('')
   const [loading, setLoading] = useState(true)
+  const busqRef = useRef(null)
 
   useEffect(() => { loadProductos() }, [])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'F10') { e.preventDefault(); busqRef.current?.focus() }
+      if (e.key === 'Escape') { setBusq('') }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   async function loadProductos() {
     setLoading(true)
@@ -24,11 +34,7 @@ export default function Inventario() {
 
   async function guardarNuevo() {
     if (!nombre || !precio) return
-    await supabase.from('productos').insert({
-      nombre: nombre.trim(),
-      precio: parseFloat(precio),
-      unidad
-    })
+    await supabase.from('productos').insert({ nombre: nombre.trim(), precio: parseFloat(precio), unidad })
     setNombre(''); setPrecio(''); setUnidad('pieza')
     setNuevoForm(false)
     loadProductos()
@@ -36,11 +42,7 @@ export default function Inventario() {
 
   async function guardarEdicion() {
     if (!editando) return
-    await supabase.from('productos').update({
-      nombre: editando.nombre,
-      precio: parseFloat(editando.precio),
-      unidad: editando.unidad
-    }).eq('id', editando.id)
+    await supabase.from('productos').update({ nombre: editando.nombre, precio: parseFloat(editando.precio), unidad: editando.unidad }).eq('id', editando.id)
     setEditando(null)
     loadProductos()
   }
@@ -55,22 +57,18 @@ export default function Inventario() {
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div className="sec" style={{ margin: 0 }}>Catálogo de productos</div>
         <button className="btn btn-p btn-sm" onClick={() => setNuevoForm(v => !v)}>+ Agregar producto</button>
       </div>
 
       {nuevoForm && (
         <div className="abono-form" style={{ marginBottom: 12 }}>
-          <div style={{ fontSize: 12, fontWeight: 500, marginBottom: 10 }}>Nuevo producto</div>
+          <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 10 }}>Nuevo producto</div>
           <div className="inp-row"><label>Nombre</label><input value={nombre} onChange={e => setNombre(e.target.value)} placeholder="Ej: Tela lino beige" autoFocus /></div>
           <div className="g2">
-            <div className="inp-row">
-              <label>Precio</label>
-              <input value={precio} onChange={e => setPrecio(e.target.value)} placeholder="0.00" type="number" min="0" step="0.01" />
-            </div>
-            <div className="inp-row">
-              <label>Unidad de venta</label>
+            <div className="inp-row"><label>Precio</label><input value={precio} onChange={e => setPrecio(e.target.value)} placeholder="0.00" type="number" min="0" step="0.01" /></div>
+            <div className="inp-row"><label>Unidad de venta</label>
               <select value={unidad} onChange={e => setUnidad(e.target.value)}>
                 {UNIDADES.map(u => <option key={u} value={u}>{u.charAt(0).toUpperCase() + u.slice(1)}</option>)}
               </select>
@@ -83,8 +81,9 @@ export default function Inventario() {
         </div>
       )}
 
-      <div style={{ marginBottom: 10 }}>
-        <input value={busq} onChange={e => setBusq(e.target.value)} placeholder="Buscar en el catálogo..." />
+      <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input ref={busqRef} value={busq} onChange={e => setBusq(e.target.value)} placeholder="Buscar en el catálogo..." style={{ flex: 1 }} />
+        <span className="kbd" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>F10</span>
       </div>
 
       {loading ? (
@@ -92,14 +91,14 @@ export default function Inventario() {
       ) : (
         <div className="card">
           <div className="inv-row header">
-            <div className="inv-name" style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 500 }}>Producto</div>
-            <div className="inv-unit" style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 500 }}>Unidad</div>
-            <div className="inv-price" style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 500 }}>Precio</div>
+            <div className="inv-name" style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 600 }}>Producto</div>
+            <div className="inv-unit" style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 600 }}>Unidad</div>
+            <div className="inv-price" style={{ fontSize: 11, color: 'var(--text3)', fontWeight: 600 }}>Precio</div>
             <div style={{ width: 60 }}></div>
           </div>
           {filtrados.length === 0 && (
             <div style={{ padding: '14px', fontSize: 13, color: 'var(--text2)' }}>
-              {busq ? 'Sin resultados para esa búsqueda' : 'Sin productos. Agrega el primero.'}
+              {busq ? 'Sin resultados' : 'Sin productos. Agrega el primero.'}
             </div>
           )}
           {filtrados.map(p => (
@@ -130,7 +129,7 @@ export default function Inventario() {
         </div>
       )}
       <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>
-        {filtrados.length} productos · Los precios se sincronizan automáticamente con el buscador de venta
+        {filtrados.length} productos · F10 para buscar · Los precios se sincronizan con el buscador de venta
       </div>
     </div>
   )

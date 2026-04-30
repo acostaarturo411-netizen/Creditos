@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { imprimirTicketVenta } from '../lib/ticketPDF'
 
 export default function Venta() {
   const [clientes, setClientes] = useState([])
@@ -19,6 +20,7 @@ export default function Venta() {
   const [genCant, setGenCant] = useState(1)
   const [genPrecio, setGenPrecio] = useState('')
   const [fase, setFase] = useState('buscar')
+  const [imprimiendo, setImprimiendo] = useState(null)
   const busqRef = useRef(null)
   const cantRef = useRef(null)
   const listRef = useRef(null)
@@ -49,8 +51,8 @@ export default function Venta() {
 
   useEffect(() => {
     if (listRef.current) {
-      const items = listRef.current.querySelectorAll('.prod-opt')
-      if (items[selIdx]) items[selIdx].scrollIntoView({ block: 'nearest' })
+      const els = listRef.current.querySelectorAll('.prod-opt')
+      if (els[selIdx]) els[selIdx].scrollIntoView({ block: 'nearest' })
     }
   }, [selIdx])
 
@@ -71,25 +73,14 @@ export default function Venta() {
   }
 
   function abrirBuscador() {
-    setBuscadorOpen(true)
-    setBusqQuery('')
-    setSelProd(null)
-    setSelIdx(0)
-    setFase('buscar')
+    setBuscadorOpen(true); setBusqQuery(''); setSelProd(null); setSelIdx(0); setFase('buscar')
     setTimeout(() => busqRef.current?.focus(), 80)
   }
 
-  function cerrarBuscador() {
-    setBuscadorOpen(false)
-    setSelProd(null)
-    setFase('buscar')
-  }
+  function cerrarBuscador() { setBuscadorOpen(false); setSelProd(null); setFase('buscar') }
 
   function seleccionarProd(p) {
-    setSelProd(p)
-    setCantidad(1)
-    setPrecioEdit(p.precio.toString())
-    setFase('cantidad')
+    setSelProd(p); setCantidad(1); setPrecioEdit(p.precio.toString()); setFase('cantidad')
     setTimeout(() => cantRef.current?.focus(), 60)
   }
 
@@ -97,16 +88,10 @@ export default function Venta() {
     if (!selProd) return
     const cant = parseFloat(cantidad) || 1
     const precio = parseFloat(precioEdit) || selProd.precio
-    const sub = cant * precio
-    const unidadLabel = `${cant} ${selProd.unidad}${cant > 1 && !selProd.unidad.includes('media') ? 's' : ''}`
     setItems(prev => [...prev, {
-      id: Date.now(),
-      descripcion: selProd.nombre,
-      cantidad: cant,
-      unidad: selProd.unidad,
-      precio_unitario: precio,
-      subtotal: sub,
-      label: `${unidadLabel} × $${precio.toLocaleString('es-MX')}`
+      id: Date.now(), descripcion: selProd.nombre, cantidad: cant, unidad: selProd.unidad,
+      precio_unitario: precio, subtotal: cant * precio,
+      label: `${cant} ${selProd.unidad}${cant > 1 && !selProd.unidad.includes('media') ? 's' : ''} × $${precio.toLocaleString('es-MX')}`
     }])
     cerrarBuscador()
   }
@@ -115,17 +100,8 @@ export default function Venta() {
     const cant = parseFloat(genCant) || 1
     const precio = parseFloat(genPrecio.replace(/[^0-9.]/g, '')) || 0
     if (!genDesc || !precio) return
-    setItems(prev => [...prev, {
-      id: Date.now(),
-      descripcion: genDesc,
-      cantidad: cant,
-      unidad: 'pza',
-      precio_unitario: precio,
-      subtotal: cant * precio,
-      label: `${cant} × $${precio.toLocaleString('es-MX')}`
-    }])
-    setGenDesc(''); setGenCant(1); setGenPrecio('')
-    setGenericoOpen(false)
+    setItems(prev => [...prev, { id: Date.now(), descripcion: genDesc, cantidad: cant, unidad: 'pza', precio_unitario: precio, subtotal: cant * precio, label: `${cant} × $${precio.toLocaleString('es-MX')}` }])
+    setGenDesc(''); setGenCant(1); setGenPrecio(''); setGenericoOpen(false)
   }
 
   function quitarItem(id) { setItems(prev => prev.filter(i => i.id !== id)) }
@@ -138,11 +114,26 @@ export default function Venta() {
     if (!clienteId || items.length === 0) return alert('Selecciona un cliente y agrega productos')
     const { data: ticket, error } = await supabase.from('tickets').insert({ cliente_id: clienteId, total }).select().single()
     if (error) return alert('Error al guardar: ' + error.message)
-    const lineas = items.map(i => ({ ticket_id: ticket.id, descripcion: i.descripcion, cantidad: i.cantidad, unidad: i.unidad, precio_unitario: i.precio_unitario, subtotal: i.subtotal }))
-    await supabase.from('ticket_items').insert(lineas)
+    await supabase.from('ticket_items').insert(items.map(i => ({ ticket_id: ticket.id, descripcion: i.descripcion, cantidad: i.cantidad, unidad: i.unidad, precio_unitario: i.precio_unitario, subtotal: i.subtotal })))
     setItems([]); setClienteId('')
     loadVentasHoy()
     alert(`Ticket #${ticket.numero} guardado`)
+  }
+
+  async function descargarPDF(venta) {
+    setImprimiendo(venta.id)
+    const config = JSON.parse(localStorage.getItem('ticket_config') || '{}')
+    try {
+      await imprimirTicketVenta({
+        numero: venta.numero,
+        cliente: venta.clientes?.nombre || '',
+        fecha: venta.creado_en,
+        items: venta.ticket_items || [],
+        total: venta.total,
+        config
+      })
+    } catch (err) { alert('Error al generar PDF: ' + err.message) }
+    setImprimiendo(null)
   }
 
   const unidadBtns = {
@@ -172,9 +163,7 @@ export default function Venta() {
               </select>
             </div>
             <div style={{ display: 'flex', gap: 8, marginBottom: 8 }}>
-              <button className="btn btn-p" style={{ flex: 1, fontSize: 12 }} onClick={abrirBuscador}>
-                Buscar producto <span className="kbd">F10</span>
-              </button>
+              <button className="btn btn-p" style={{ flex: 1, fontSize: 12 }} onClick={abrirBuscador}>Buscar producto <span className="kbd">F10</span></button>
               <button className="btn" style={{ fontSize: 12 }} onClick={() => setGenericoOpen(v => !v)}>+ Genérico</button>
             </div>
             {genericoOpen && (
@@ -200,7 +189,12 @@ export default function Venta() {
                     <div className="rn">#{v.numero} · {v.clientes?.nombre}</div>
                     <div className="rs">{v.ticket_items?.length} productos · {new Date(v.creado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</div>
                   </div>
-                  <div className="amt" style={{ fontFamily: 'var(--mono)' }}>${v.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+                  <div className="ra" style={{ display: 'flex', flexDirection: 'column', gap: 4, alignItems: 'flex-end' }}>
+                    <div className="amt" style={{ fontFamily: 'var(--mono)' }}>${v.total.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+                    <button className="btn btn-sm btn-p" style={{ fontSize: 10 }} onClick={() => descargarPDF(v)} disabled={imprimiendo === v.id}>
+                      {imprimiendo === v.id ? '...' : 'Imprimir PDF'}
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
@@ -246,7 +240,6 @@ export default function Venta() {
                 </span>
                 <button className="btn btn-sm" onClick={cerrarBuscador}>Cerrar <span className="kbd">Esc</span></button>
               </div>
-
               {fase === 'buscar' && (
                 <>
                   <input ref={busqRef} value={busqQuery} onChange={e => setBusqQuery(e.target.value)} placeholder="Escribe para filtrar..." style={{ marginBottom: 8 }} />
@@ -262,26 +255,17 @@ export default function Venta() {
                   <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 6 }}>↑↓ navegar · Enter seleccionar · Esc cerrar</div>
                 </>
               )}
-
               {fase === 'cantidad' && selProd && (
                 <div>
-                  <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>
-                    ${selProd.precio.toLocaleString('es-MX')} / {selProd.unidad}
-                  </div>
+                  <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>${selProd.precio.toLocaleString('es-MX')} / {selProd.unidad}</div>
                   <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 10 }}>
                     {(unidadBtns[selProd.unidad] || [[1,'1'],[2,'2'],[5,'5']]).map(([v, l]) => (
                       <button key={v} className="btn btn-sm" onClick={() => { setCantidad(v); cantRef.current?.focus() }}>{l}</button>
                     ))}
                   </div>
                   <div className="g2" style={{ marginBottom: 8 }}>
-                    <div className="inp-row">
-                      <label>Cantidad ({selProd.unidad})</label>
-                      <input ref={cantRef} type="number" value={cantidad} onChange={e => setCantidad(e.target.value)} min="0.5" step="0.5" />
-                    </div>
-                    <div className="inp-row">
-                      <label>Precio (modificable)</label>
-                      <input value={precioEdit} onChange={e => setPrecioEdit(e.target.value)} />
-                    </div>
+                    <div className="inp-row"><label>Cantidad ({selProd.unidad})</label><input ref={cantRef} type="number" value={cantidad} onChange={e => setCantidad(e.target.value)} min="0.5" step="0.5" /></div>
+                    <div className="inp-row"><label>Precio (modificable)</label><input value={precioEdit} onChange={e => setPrecioEdit(e.target.value)} /></div>
                   </div>
                   <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
                     Subtotal: <strong style={{ color: 'var(--text)' }}>${(parseFloat(cantidad||0) * parseFloat(precioEdit||0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong>

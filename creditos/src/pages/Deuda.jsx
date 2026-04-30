@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 
 export default function Deuda() {
@@ -31,8 +31,27 @@ export default function Deuda() {
   const [nuevaCompraDesc, setNuevaCompraDesc] = useState('')
   const [nuevaCompraMonto, setNuevaCompraMonto] = useState('')
   const [nuevaCompraFecha, setNuevaCompraFecha] = useState(new Date().toISOString().split('T')[0])
+  const [busqOpen, setBusqOpen] = useState(false)
+  const [busqQuery, setBusqQuery] = useState('')
+  const busqRef = useRef(null)
 
   useEffect(() => { loadProveedores() }, [])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'F10' && !detalle) { e.preventDefault(); abrirBusq() }
+      if (e.key === 'Escape' && busqOpen) { setBusqOpen(false); setBusqQuery('') }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detalle, busqOpen])
+
+  function abrirBusq() {
+    setBusqOpen(true); setBusqQuery('')
+    setTimeout(() => busqRef.current?.focus(), 80)
+  }
+
+  const provsFiltrados = proveedores.filter(p => p.nombre.toLowerCase().includes(busqQuery.toLowerCase()))
 
   async function loadProveedores() {
     setLoading(true)
@@ -50,15 +69,10 @@ export default function Deuda() {
   }
 
   async function verDetalle(prov) {
-    setDetalle(prov)
-    setAbonoForm(false)
-    setCompraForm(false)
-    setEditandoProveedor(false)
-    setEditandoCompra(null)
-    setEditandoAbono(null)
-    setPeriodoTotal(null)
-    setComprasSeleccionadas([])
-    setDistribucion({})
+    setDetalle(prov); setAbonoForm(false); setCompraForm(false)
+    setEditandoProveedor(false); setEditandoCompra(null); setEditandoAbono(null)
+    setPeriodoTotal(null); setComprasSeleccionadas([]); setDistribucion({})
+    setBusqOpen(false); setBusqQuery('')
     await recargarDetalle(prov.id)
   }
 
@@ -80,8 +94,7 @@ export default function Deuda() {
     if (!nombreEditProv.trim()) return
     await supabase.from('proveedores').update({ nombre: nombreEditProv.trim(), telefono: telEditProv }).eq('id', detalle.id)
     setDetalle({ ...detalle, nombre: nombreEditProv.trim(), telefono: telEditProv })
-    setEditandoProveedor(false)
-    loadProveedores()
+    setEditandoProveedor(false); loadProveedores()
   }
 
   async function guardarCompra() {
@@ -90,9 +103,7 @@ export default function Deuda() {
     const fecha = new Date(nuevaCompraFecha + 'T12:00:00').toISOString()
     await supabase.from('compras_proveedores').insert({ proveedor_id: detalle.id, descripcion: nuevaCompraDesc.trim(), total: monto, creado_en: fecha })
     setNuevaCompraDesc(''); setNuevaCompraMonto(''); setNuevaCompraFecha(new Date().toISOString().split('T')[0])
-    setCompraForm(false)
-    await recargarDetalle()
-    loadProveedores()
+    setCompraForm(false); await recargarDetalle(); loadProveedores()
   }
 
   async function guardarEdicionCompra() {
@@ -101,39 +112,29 @@ export default function Deuda() {
     if (!monto) return alert('Ingresa un monto válido')
     const fecha = new Date(editandoCompra.fecha_edit + 'T12:00:00').toISOString()
     await supabase.from('compras_proveedores').update({ descripcion: editandoCompra.descripcion, total: monto, creado_en: fecha }).eq('id', editandoCompra.id)
-    setEditandoCompra(null)
-    await recargarDetalle()
-    loadProveedores()
+    setEditandoCompra(null); await recargarDetalle(); loadProveedores()
   }
 
   async function eliminarCompra(id) {
-    if (!confirm('¿Eliminar esta compra? También se eliminarán los abonos asociados a ella.')) return
+    if (!confirm('¿Eliminar esta compra?')) return
     await supabase.from('abonos_proveedores_detalle').delete().eq('compra_id', id)
-    const { error } = await supabase.from('compras_proveedores').delete().eq('id', id)
-    if (error) { alert('Error al eliminar: ' + error.message); return }
-    await recargarDetalle()
-    loadProveedores()
+    await supabase.from('compras_proveedores').delete().eq('id', id)
+    await recargarDetalle(); loadProveedores()
   }
 
   async function eliminarAbono(abono) {
-    if (!confirm('¿Eliminar este abono? El saldo se recalculará automáticamente.')) return
+    if (!confirm('¿Eliminar este abono?')) return
     await supabase.from('abonos_proveedores_detalle').delete().eq('abono_id', abono.id)
     await supabase.from('abonos_proveedores').delete().eq('id', abono.id)
-    await recargarDetalle()
-    loadProveedores()
+    await recargarDetalle(); loadProveedores()
   }
 
   async function guardarEdicionAbono() {
     if (!editandoAbono) return
     const monto = parseFloat(String(editandoAbono.monto).replace(/[^0-9.]/g, ''))
     if (!monto) return alert('Ingresa un monto válido')
-    await supabase.from('abonos_proveedores').update({
-      monto,
-      forma_pago: editandoAbono.forma_pago,
-    }).eq('id', editandoAbono.id)
-    setEditandoAbono(null)
-    await recargarDetalle()
-    loadProveedores()
+    await supabase.from('abonos_proveedores').update({ monto, forma_pago: editandoAbono.forma_pago }).eq('id', editandoAbono.id)
+    setEditandoAbono(null); await recargarDetalle(); loadProveedores()
   }
 
   function toggleCompraSeleccionada(compra) {
@@ -141,9 +142,7 @@ export default function Deuda() {
     if (ya) {
       setComprasSeleccionadas(prev => prev.filter(c => c.id !== compra.id))
       setDistribucion(prev => { const n = { ...prev }; delete n[compra.id]; return n })
-    } else {
-      setComprasSeleccionadas(prev => [...prev, compra])
-    }
+    } else { setComprasSeleccionadas(prev => [...prev, compra]) }
   }
 
   function distribuirAutomatico(monto) {
@@ -163,8 +162,7 @@ export default function Deuda() {
   function onMontoChange(val) {
     setMontoAbono(val)
     if (tipoAbono === 'multiple' && comprasSeleccionadas.length > 0) {
-      const monto = parseFloat(val.replace(/[^0-9.]/g, '')) || 0
-      distribuirAutomatico(monto)
+      distribuirAutomatico(parseFloat(val.replace(/[^0-9.]/g, '')) || 0)
     }
   }
 
@@ -172,27 +170,14 @@ export default function Deuda() {
     const monto = parseFloat(montoAbono.replace(/[^0-9.]/g, ''))
     if (!monto || monto <= 0) return alert('Ingresa un monto válido')
     if (tipoAbono === 'multiple' && comprasSeleccionadas.length === 0) return alert('Selecciona al menos una compra')
-    const { data: abono } = await supabase.from('abonos_proveedores').insert({
-      proveedor_id: detalle.id,
-      compra_id: null,
-      tipo: tipoAbono,
-      forma_pago: formaPago,
-      monto,
-      foto_url: fotoUrl
-    }).select().single()
+    const { data: abono } = await supabase.from('abonos_proveedores').insert({ proveedor_id: detalle.id, compra_id: null, tipo: tipoAbono, forma_pago: formaPago, monto, foto_url: fotoUrl }).select().single()
     if (tipoAbono === 'multiple' && abono) {
-      const detalles = comprasSeleccionadas.map(c => ({
-        abono_id: abono.id,
-        compra_id: c.id,
-        monto: parseFloat(distribucion[c.id] || 0)
-      })).filter(d => d.monto > 0)
-      if (detalles.length > 0) await supabase.from('abonos_proveedores_detalle').insert(detalles)
+      const dets = comprasSeleccionadas.map(c => ({ abono_id: abono.id, compra_id: c.id, monto: parseFloat(distribucion[c.id] || 0) })).filter(d => d.monto > 0)
+      if (dets.length > 0) await supabase.from('abonos_proveedores_detalle').insert(dets)
     }
     setMontoAbono(''); setFotoUrl(null); setFotoLabel('+ Agregar foto de voucher'); setFotoOk(false)
-    setComprasSeleccionadas([]); setDistribucion({})
-    setAbonoForm(false)
-    await recargarDetalle()
-    loadProveedores()
+    setComprasSeleccionadas([]); setDistribucion({}); setAbonoForm(false)
+    await recargarDetalle(); loadProveedores()
   }
 
   async function subirFoto(file) {
@@ -207,17 +192,14 @@ export default function Deuda() {
   }
 
   async function handleFotoChange(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const file = e.target.files?.[0]; if (!file) return
     const path = await subirFoto(file)
     if (path) { setFotoUrl(path); setFotoLabel(`Foto lista: ${file.name}`); setFotoOk(true) }
   }
 
   async function agregarFotoAbono(abonoId, e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const path = await subirFoto(file)
-    if (!path) return
+    const file = e.target.files?.[0]; if (!file) return
+    const path = await subirFoto(file); if (!path) return
     await supabase.from('abonos_proveedores').update({ foto_url: path }).eq('id', abonoId)
     await recargarDetalle()
   }
@@ -229,8 +211,7 @@ export default function Deuda() {
   }
 
   function getSaldo(id) {
-    const s = saldos[id]
-    if (!s) return 0
+    const s = saldos[id]; if (!s) return 0
     return Math.max(0, s.compras - s.abonado)
   }
 
@@ -251,7 +232,7 @@ export default function Deuda() {
           </>
         ) : (
           <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' }}>
-            <input value={nombreEditProv} onChange={e => setNombreEditProv(e.target.value)} style={{ flex: 1, minWidth: 140 }} placeholder="Nombre del proveedor" />
+            <input value={nombreEditProv} onChange={e => setNombreEditProv(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
             <input value={telEditProv} onChange={e => setTelEditProv(e.target.value)} style={{ width: 130 }} placeholder="Teléfono" />
             <button className="btn btn-sm" onClick={() => setEditandoProveedor(false)}>Cancelar</button>
             <button className="btn btn-p btn-sm" onClick={guardarNombreProveedor}>Guardar</button>
@@ -349,8 +330,7 @@ export default function Deuda() {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Editar abono</div>
               <div className="g2">
                 <div className="inp-row"><label>Monto</label><input value={editandoAbono.monto} onChange={e => setEditandoAbono(v => ({ ...v, monto: e.target.value }))} /></div>
-                <div className="inp-row">
-                  <label>Forma de pago</label>
+                <div className="inp-row"><label>Forma de pago</label>
                   <select value={editandoAbono.forma_pago} onChange={e => setEditandoAbono(v => ({ ...v, forma_pago: e.target.value }))}>
                     <option value="transferencia">Transferencia</option>
                     <option value="efectivo">Efectivo</option>
@@ -369,15 +349,10 @@ export default function Deuda() {
                 {a.forma_pago === 'transferencia' ? '⇄' : a.forma_pago === 'efectivo' ? '$' : '↓'}
               </div>
               <div className="ri">
-                <div className="rn">
-                  {a.forma_pago.charAt(0).toUpperCase() + a.forma_pago.slice(1)}{' '}
-                  <span className={`tag ${a.tipo === 'general' ? 'tag-gral' : 'tag-esp'}`}>
-                    {a.tipo === 'general' ? 'Al total' : a.tipo === 'multiple' ? `${a.abonos_proveedores_detalle?.length || 0} compras` : 'Compra esp.'}
-                  </span>
-                </div>
+                <div className="rn">{a.forma_pago.charAt(0).toUpperCase() + a.forma_pago.slice(1)} <span className={`tag ${a.tipo === 'general' ? 'tag-gral' : 'tag-esp'}`}>{a.tipo === 'general' ? 'Al total' : a.tipo === 'multiple' ? `${a.abonos_proveedores_detalle?.length || 0} compras` : 'Compra esp.'}</span></div>
                 <div className="rs">{new Date(a.creado_en).toLocaleDateString('es-MX')} {new Date(a.creado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
-              <label className={`ev-thumb${a.foto_url ? ' has' : ''}`} title={a.foto_url ? 'Ver evidencia' : 'Agregar foto'}>
+              <label className={`ev-thumb${a.foto_url ? ' has' : ''}`}>
                 {a.foto_url ? 'IMG' : '+'}
                 {!a.foto_url && <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => agregarFotoAbono(a.id, e)} />}
               </label>
@@ -434,12 +409,8 @@ export default function Deuda() {
             </div>
           )}
           <div className="g2">
-            <div className="inp-row">
-              <label>Monto total del abono</label>
-              <input value={montoAbono} onChange={e => onMontoChange(e.target.value)} placeholder="0.00" />
-            </div>
-            <div className="inp-row">
-              <label>Forma de pago</label>
+            <div className="inp-row"><label>Monto total del abono</label><input value={montoAbono} onChange={e => onMontoChange(e.target.value)} placeholder="0.00" /></div>
+            <div className="inp-row"><label>Forma de pago</label>
               <select value={formaPago} onChange={e => setFormaPago(e.target.value)}>
                 <option value="transferencia">Transferencia</option>
                 <option value="efectivo">Efectivo</option>
@@ -454,9 +425,7 @@ export default function Deuda() {
           <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>También puedes agregar la foto después desde el historial</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
             <button className="btn btn-sm" onClick={() => { setAbonoForm(false); setComprasSeleccionadas([]); setDistribucion({}) }}>Cancelar</button>
-            <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={confirmarAbono} disabled={uploading}>
-              {uploading ? 'Subiendo...' : 'Confirmar abono'}
-            </button>
+            <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={confirmarAbono} disabled={uploading}>{uploading ? 'Subiendo...' : 'Confirmar abono'}</button>
           </div>
         </div>
       )}
@@ -466,15 +435,34 @@ export default function Deuda() {
 
   return (
     <div>
-      <div className="metrics">
+      <div className="metrics" style={{ marginBottom: 10 }}>
         <div className="met"><div className="met-l">Total que debo</div><div className="met-v red">${totalDeuda.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div></div>
         <div className="met"><div className="met-l">Proveedores</div><div className="met-v">{proveedores.length}</div></div>
         <div className="met"><div className="met-l">Abonado total</div><div className="met-v green">${totalAbonado.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div></div>
       </div>
-      <div className="sec">Mis proveedores</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="sec" style={{ margin: 0 }}>Mis proveedores</div>
+          <button className="btn btn-sm" style={{ fontSize: 11 }} onClick={abrirBusq}>Buscar <span className="kbd">F10</span></button>
+        </div>
+        <button className="btn btn-p btn-sm" onClick={async () => {
+          const nombre = prompt('Nombre del proveedor:')
+          if (!nombre) return
+          const tel = prompt('Teléfono (opcional):') || ''
+          await supabase.from('proveedores').insert({ nombre, telefono: tel })
+          loadProveedores()
+        }}>+ Nuevo proveedor</button>
+      </div>
+
+      {busqOpen && (
+        <div style={{ marginBottom: 10 }}>
+          <input ref={busqRef} value={busqQuery} onChange={e => setBusqQuery(e.target.value)} placeholder="Buscar proveedor..." />
+        </div>
+      )}
+
       <div className="card">
-        {proveedores.length === 0 && <div style={{ padding: '14px', fontSize: 13, color: 'var(--text2)' }}>Sin proveedores. Agrega el primero.</div>}
-        {proveedores.map((p, i) => {
+        {(busqOpen ? provsFiltrados : proveedores).length === 0 && <div style={{ padding: '14px', fontSize: 13, color: 'var(--text2)' }}>{busqOpen ? 'Sin resultados' : 'Sin proveedores. Agrega el primero.'}</div>}
+        {(busqOpen ? provsFiltrados : proveedores).map((p, i) => {
           const saldo = getSaldo(p.id)
           const colors = ['av-b','av-t','av-a','av-c','av-p']
           const initials = p.nombre.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()
@@ -493,13 +481,6 @@ export default function Deuda() {
           )
         })}
       </div>
-      <button className="btn btn-p btn-f" style={{ fontSize: 13 }} onClick={async () => {
-        const nombre = prompt('Nombre del proveedor:')
-        if (!nombre) return
-        const tel = prompt('Teléfono (opcional):') || ''
-        await supabase.from('proveedores').insert({ nombre, telefono: tel })
-        loadProveedores()
-      }}>+ Nuevo proveedor</button>
     </div>
   )
 }

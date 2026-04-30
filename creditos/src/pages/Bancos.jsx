@@ -1,11 +1,5 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
-
-function generarTicketBanco(config, proveedor, tipoCuenta) {
-  const { jsPDF } = window.jspdf || {}
-  // Se usa el mismo generador de PDF que Exportar
-  return { proveedor, tipoCuenta, config }
-}
 
 export default function Bancos() {
   const [proveedores, setProveedores] = useState([])
@@ -19,10 +13,21 @@ export default function Bancos() {
   const [cuenta, setCuenta] = useState('')
   const [clabe, setClabe] = useState('')
   const [imprimiendo, setImprimiendo] = useState(null)
-  const [monto, setMonto] = useState('')
-  const [tipoCuenta, setTipoCuenta] = useState('clabe')
+  const [montos, setMontos] = useState({})
+  const [tipoCuentas, setTipoCuentas] = useState({})
+  const [busqQuery, setBusqQuery] = useState('')
+  const busqRef = useRef(null)
 
   useEffect(() => { loadDatos() }, [])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'F10') { e.preventDefault(); busqRef.current?.focus() }
+      if (e.key === 'Escape') setBusqQuery('')
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [])
 
   async function loadDatos() {
     setLoading(true)
@@ -34,7 +39,7 @@ export default function Bancos() {
   }
 
   function limpiarForm() {
-    setProvId(''); setBanco(''); setBeneficiario(''); setCuenta(''); setClabe(''); setMonto(''); setTipoCuenta('clabe')
+    setProvId(''); setBanco(''); setBeneficiario(''); setCuenta(''); setClabe('')
     setEditando(null); setFormOpen(false)
   }
 
@@ -46,8 +51,7 @@ export default function Bancos() {
     } else {
       await supabase.from('cuentas_bancarias').insert({ proveedor_id: provId, banco, beneficiario, cuenta, clabe })
     }
-    limpiarForm()
-    loadDatos()
+    limpiarForm(); loadDatos()
   }
 
   async function eliminar(id) {
@@ -57,52 +61,46 @@ export default function Bancos() {
   }
 
   function iniciarEdicion(c) {
-    setEditando(c)
-    setProvId(c.proveedor_id)
-    setBanco(c.banco)
-    setBeneficiario(c.beneficiario)
-    setCuenta(c.cuenta || '')
-    setClabe(c.clabe || '')
+    setEditando(c); setProvId(c.proveedor_id); setBanco(c.banco)
+    setBeneficiario(c.beneficiario); setCuenta(c.cuenta || ''); setClabe(c.clabe || '')
     setFormOpen(true)
   }
 
   async function imprimirTicket(c) {
     setImprimiendo(c.id)
-    const montoNum = parseFloat(monto.replace(/[^0-9.]/g, '')) || 0
+    const montoNum = parseFloat((montos[c.id] || '').replace(/[^0-9.]/g, '')) || 0
+    const tipo = tipoCuentas[c.id] || (c.clabe ? 'clabe' : 'cuenta')
     try {
       const { jsPDF } = await import('jspdf')
       const doc = new jsPDF({ unit: 'mm', format: [58, 200], orientation: 'portrait' })
-      const ancho = 54
-      const margen = 2
-      let y = 6
+      const config = JSON.parse(localStorage.getItem('ticket_config') || '{}')
+      const ancho = 54; const margen = 2; let y = 6
 
-      doc.setFont('courier', 'bold')
-      doc.setFontSize(11)
-      doc.text('CREDITOS', ancho / 2 + margen, y, { align: 'center' })
-      y += 5
+      if (config.logo) {
+        try { doc.addImage(config.logo, 'JPEG', margen + 8, y, 38, 15); y += 18 } catch(e) {}
+      }
 
-      doc.setFontSize(7)
-      doc.setFont('courier', 'normal')
+      doc.setFont('courier', 'bold'); doc.setFontSize(11)
+      doc.text(config.nombre_negocio || 'CREDITOS', ancho / 2 + margen, y, { align: 'center' }); y += 5
+      doc.setFontSize(7); doc.setFont('courier', 'normal')
       doc.text('================================', margen, y); y += 4
       doc.setFont('courier', 'bold')
       doc.text('DEPOSITO A PROVEEDOR', margen, y); y += 4
       doc.setFont('courier', 'normal')
       doc.text('--------------------------------', margen, y); y += 4
-      doc.text(`Beneficiario:`, margen, y); y += 3.5
+      doc.text('Beneficiario:', margen, y); y += 3.5
       doc.setFont('courier', 'bold')
       doc.text(`${c.beneficiario}`, margen, y); y += 4
       doc.setFont('courier', 'normal')
       doc.text(`Banco: ${c.banco}`, margen, y); y += 4
 
-      if (tipoCuenta === 'clabe' && c.clabe) {
+      if (tipo === 'clabe' && c.clabe) {
         doc.text('CLABE:', margen, y); y += 3.5
-        doc.setFont('courier', 'bold')
-        doc.text(`${c.clabe}`, margen, y); y += 4
+        doc.setFont('courier', 'bold'); doc.text(`${c.clabe}`, margen, y); y += 4
         doc.setFont('courier', 'normal')
-      } else if (tipoCuenta === 'cuenta' && c.cuenta) {
+      } else if (tipo === 'cuenta' && c.cuenta) {
         doc.text('No. Cuenta:', margen, y); y += 3.5
-        doc.setFont('courier', 'bold')
-        doc.text(`${c.cuenta}`, margen, y); y += 4
+        doc.setFont('courier', 'bold'); doc.text(`${c.cuenta}`, margen, y); y += 4
         doc.setFont('courier', 'normal')
       } else {
         if (c.clabe) { doc.text(`CLABE: ${c.clabe}`, margen, y); y += 4 }
@@ -111,32 +109,38 @@ export default function Bancos() {
 
       doc.text('--------------------------------', margen, y); y += 4
       if (montoNum > 0) {
-        doc.setFont('courier', 'bold')
-        doc.setFontSize(8)
+        doc.setFont('courier', 'bold'); doc.setFontSize(8)
         const montoStr = `$${montoNum.toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
         const label = 'Cantidad:'
-        const espacio = Math.max(1, 32 - label.length - montoStr.length)
-        doc.text(label + ' '.repeat(espacio) + montoStr, margen, y); y += 5
-        doc.setFont('courier', 'normal')
-        doc.setFontSize(7)
+        const esp = Math.max(1, 32 - label.length - montoStr.length)
+        doc.text(label + ' '.repeat(esp) + montoStr, margen, y); y += 5
+        doc.setFont('courier', 'normal'); doc.setFontSize(7)
       }
       doc.text('================================', margen, y); y += 4
-      doc.text('\n\n', margen, y)
-
+      if (config.pie) { doc.text(config.pie, ancho / 2 + margen, y, { align: 'center' }) }
       doc.save(`Deposito_${c.beneficiario.replace(/\s/g,'_')}.pdf`)
-    } catch (err) {
-      alert('Error al generar PDF: ' + err.message)
-    }
+    } catch (err) { alert('Error al generar PDF: ' + err.message) }
     setImprimiendo(null)
   }
+
+  const cuentasFiltradas = cuentas.filter(c =>
+    c.beneficiario.toLowerCase().includes(busqQuery.toLowerCase()) ||
+    c.banco.toLowerCase().includes(busqQuery.toLowerCase()) ||
+    (c.proveedores?.nombre || '').toLowerCase().includes(busqQuery.toLowerCase())
+  )
 
   if (loading) return <div style={{ padding: 20, color: 'var(--text2)', fontSize: 13 }}>Cargando...</div>
 
   return (
     <div>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
         <div className="sec" style={{ margin: 0 }}>Datos bancarios de proveedores</div>
         <button className="btn btn-p btn-sm" onClick={() => { limpiarForm(); setFormOpen(true) }}>+ Agregar cuenta</button>
+      </div>
+
+      <div style={{ marginBottom: 10, display: 'flex', alignItems: 'center', gap: 8 }}>
+        <input ref={busqRef} value={busqQuery} onChange={e => setBusqQuery(e.target.value)} placeholder="Buscar por beneficiario, banco o proveedor..." style={{ flex: 1 }} />
+        <span className="kbd" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>F10</span>
       </div>
 
       {formOpen && (
@@ -164,13 +168,15 @@ export default function Bancos() {
         </div>
       )}
 
-      {cuentas.length === 0 && !formOpen && (
+      {cuentasFiltradas.length === 0 && !formOpen && (
         <div className="card" style={{ padding: 14 }}>
-          <div style={{ fontSize: 13, color: 'var(--text2)', textAlign: 'center', padding: '20px 0' }}>Sin cuentas bancarias. Agrega la primera.</div>
+          <div style={{ fontSize: 13, color: 'var(--text2)', textAlign: 'center', padding: '20px 0' }}>
+            {busqQuery ? 'Sin resultados' : 'Sin cuentas bancarias. Agrega la primera.'}
+          </div>
         </div>
       )}
 
-      {cuentas.map(c => (
+      {cuentasFiltradas.map(c => (
         <div key={c.id} className="card" style={{ marginBottom: 10 }}>
           <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
@@ -187,20 +193,15 @@ export default function Bancos() {
             {c.cuenta && <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2 }}>Cuenta: <span style={{ fontFamily: 'var(--mono)', color: 'var(--text)' }}>{c.cuenta}</span></div>}
           </div>
           <div style={{ padding: '10px 14px', display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
-            <input
-              type="text"
-              placeholder="Cantidad a depositar (opcional)"
-              value={imprimiendo === c.id ? monto : ''}
-              onChange={e => setMonto(e.target.value)}
-              onFocus={() => setImprimiendo(c.id)}
-              style={{ flex: 1, minWidth: 160, fontSize: 13 }}
-            />
-            <select value={tipoCuenta} onChange={e => setTipoCuenta(e.target.value)} style={{ width: 110, fontSize: 12 }}>
+            <input type="text" placeholder="Cantidad a depositar (opcional)" value={montos[c.id] || ''} onChange={e => setMontos(prev => ({ ...prev, [c.id]: e.target.value }))} style={{ flex: 1, minWidth: 160, fontSize: 13 }} />
+            <select value={tipoCuentas[c.id] || (c.clabe ? 'clabe' : 'cuenta')} onChange={e => setTipoCuentas(prev => ({ ...prev, [c.id]: e.target.value }))} style={{ width: 120, fontSize: 12 }}>
               {c.clabe && <option value="clabe">Con CLABE</option>}
               {c.cuenta && <option value="cuenta">Con cuenta</option>}
               {c.clabe && c.cuenta && <option value="ambas">Ambas</option>}
             </select>
-            <button className="btn btn-p btn-sm" onClick={() => imprimirTicket(c)}>Imprimir ticket</button>
+            <button className="btn btn-p btn-sm" onClick={() => imprimirTicket(c)} disabled={imprimiendo === c.id}>
+              {imprimiendo === c.id ? '...' : 'Imprimir ticket'}
+            </button>
           </div>
         </div>
       ))}

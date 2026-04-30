@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { supabase } from '../lib/supabase'
+import { imprimirTicketVenta } from '../lib/ticketPDF'
 
 export default function Creditos() {
   const [clientes, setClientes] = useState([])
@@ -27,8 +28,28 @@ export default function Creditos() {
   const [nombreEditCli, setNombreEditCli] = useState('')
   const [telEditCli, setTelEditCli] = useState('')
   const [editandoTicket, setEditandoTicket] = useState(null)
+  const [busqOpen, setBusqOpen] = useState(false)
+  const [busqQuery, setBusqQuery] = useState('')
+  const [imprimiendo, setImprimiendo] = useState(null)
+  const busqRef = useRef(null)
 
   useEffect(() => { loadClientes() }, [])
+
+  useEffect(() => {
+    const onKey = (e) => {
+      if (e.key === 'F10' && !detalle) { e.preventDefault(); abrirBusq() }
+      if (e.key === 'Escape' && busqOpen) { setBusqOpen(false); setBusqQuery('') }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [detalle, busqOpen])
+
+  function abrirBusq() {
+    setBusqOpen(true); setBusqQuery('')
+    setTimeout(() => busqRef.current?.focus(), 80)
+  }
+
+  const clientesFiltrados = clientes.filter(c => c.nombre.toLowerCase().includes(busqQuery.toLowerCase()))
 
   async function loadClientes() {
     setLoading(true)
@@ -46,14 +67,10 @@ export default function Creditos() {
   }
 
   async function verDetalle(cliente) {
-    setDetalle(cliente)
-    setAbonoForm(false)
-    setEditandoCliente(false)
-    setEditandoTicket(null)
-    setEditandoAbono(null)
-    setPeriodoTotal(null)
-    setTicketsSeleccionados([])
-    setDistribucion({})
+    setDetalle(cliente); setAbonoForm(false); setEditandoCliente(false)
+    setEditandoTicket(null); setEditandoAbono(null); setPeriodoTotal(null)
+    setTicketsSeleccionados([]); setDistribucion({})
+    setBusqOpen(false); setBusqQuery('')
     await recargarDetalle(cliente.id)
   }
 
@@ -75,8 +92,7 @@ export default function Creditos() {
     if (!nombreEditCli.trim()) return
     await supabase.from('clientes').update({ nombre: nombreEditCli.trim(), telefono: telEditCli }).eq('id', detalle.id)
     setDetalle({ ...detalle, nombre: nombreEditCli.trim(), telefono: telEditCli })
-    setEditandoCliente(false)
-    loadClientes()
+    setEditandoCliente(false); loadClientes()
   }
 
   async function guardarEdicionTicket() {
@@ -85,26 +101,22 @@ export default function Creditos() {
     if (!monto) return alert('Ingresa un monto válido')
     const fecha = new Date(editandoTicket.fecha_edit + 'T12:00:00').toISOString()
     await supabase.from('tickets').update({ total: monto, notas: editandoTicket.notas, creado_en: fecha }).eq('id', editandoTicket.id)
-    setEditandoTicket(null)
-    await recargarDetalle()
-    loadClientes()
+    setEditandoTicket(null); await recargarDetalle(); loadClientes()
   }
 
   async function eliminarTicket(ticket) {
-    if (!confirm(`¿Eliminar el ticket #${ticket.numero}? Esta acción no se puede deshacer.`)) return
+    if (!confirm(`¿Eliminar el ticket #${ticket.numero}?`)) return
     await supabase.from('abonos_clientes_detalle').delete().eq('ticket_id', ticket.id)
     await supabase.from('ticket_items').delete().eq('ticket_id', ticket.id)
     await supabase.from('tickets').delete().eq('id', ticket.id)
-    await recargarDetalle()
-    loadClientes()
+    await recargarDetalle(); loadClientes()
   }
 
   async function eliminarAbono(abono) {
-    if (!confirm('¿Eliminar este abono? El saldo se recalculará automáticamente.')) return
+    if (!confirm('¿Eliminar este abono?')) return
     await supabase.from('abonos_clientes_detalle').delete().eq('abono_id', abono.id)
     await supabase.from('abonos_clientes').delete().eq('id', abono.id)
-    await recargarDetalle()
-    loadClientes()
+    await recargarDetalle(); loadClientes()
   }
 
   async function guardarEdicionAbono() {
@@ -112,9 +124,7 @@ export default function Creditos() {
     const monto = parseFloat(String(editandoAbono.monto).replace(/[^0-9.]/g, ''))
     if (!monto) return alert('Ingresa un monto válido')
     await supabase.from('abonos_clientes').update({ monto, forma_pago: editandoAbono.forma_pago }).eq('id', editandoAbono.id)
-    setEditandoAbono(null)
-    await recargarDetalle()
-    loadClientes()
+    setEditandoAbono(null); await recargarDetalle(); loadClientes()
   }
 
   function toggleTicketSeleccionado(ticket) {
@@ -122,9 +132,7 @@ export default function Creditos() {
     if (ya) {
       setTicketsSeleccionados(prev => prev.filter(t => t.id !== ticket.id))
       setDistribucion(prev => { const n = { ...prev }; delete n[ticket.id]; return n })
-    } else {
-      setTicketsSeleccionados(prev => [...prev, ticket])
-    }
+    } else { setTicketsSeleccionados(prev => [...prev, ticket]) }
   }
 
   function distribuirAutomatico(monto) {
@@ -144,8 +152,7 @@ export default function Creditos() {
   function onMontoChange(val) {
     setMontoAbono(val)
     if (tipoAbono === 'multiple' && ticketsSeleccionados.length > 0) {
-      const monto = parseFloat(val.replace(/[^0-9.]/g, '')) || 0
-      distribuirAutomatico(monto)
+      distribuirAutomatico(parseFloat(val.replace(/[^0-9.]/g, '')) || 0)
     }
   }
 
@@ -153,27 +160,14 @@ export default function Creditos() {
     const monto = parseFloat(montoAbono.replace(/[^0-9.]/g, ''))
     if (!monto || monto <= 0) return alert('Ingresa un monto válido')
     if (tipoAbono === 'multiple' && ticketsSeleccionados.length === 0) return alert('Selecciona al menos una compra')
-    const { data: abono } = await supabase.from('abonos_clientes').insert({
-      cliente_id: detalle.id,
-      ticket_id: null,
-      tipo: tipoAbono,
-      forma_pago: formaPago,
-      monto,
-      foto_url: fotoUrl
-    }).select().single()
+    const { data: abono } = await supabase.from('abonos_clientes').insert({ cliente_id: detalle.id, ticket_id: null, tipo: tipoAbono, forma_pago: formaPago, monto, foto_url: fotoUrl }).select().single()
     if (tipoAbono === 'multiple' && abono) {
-      const detalles = ticketsSeleccionados.map(t => ({
-        abono_id: abono.id,
-        ticket_id: t.id,
-        monto: parseFloat(distribucion[t.id] || 0)
-      })).filter(d => d.monto > 0)
-      if (detalles.length > 0) await supabase.from('abonos_clientes_detalle').insert(detalles)
+      const dets = ticketsSeleccionados.map(t => ({ abono_id: abono.id, ticket_id: t.id, monto: parseFloat(distribucion[t.id] || 0) })).filter(d => d.monto > 0)
+      if (dets.length > 0) await supabase.from('abonos_clientes_detalle').insert(dets)
     }
     setMontoAbono(''); setFotoUrl(null); setFotoLabel('+ Agregar foto de voucher'); setFotoOk(false)
-    setTicketsSeleccionados([]); setDistribucion({})
-    setAbonoForm(false)
-    await recargarDetalle()
-    loadClientes()
+    setTicketsSeleccionados([]); setDistribucion({}); setAbonoForm(false)
+    await recargarDetalle(); loadClientes()
   }
 
   async function subirFoto(file) {
@@ -188,19 +182,25 @@ export default function Creditos() {
   }
 
   async function handleFotoChange(e) {
-    const file = e.target.files?.[0]
-    if (!file) return
+    const file = e.target.files?.[0]; if (!file) return
     const path = await subirFoto(file)
     if (path) { setFotoUrl(path); setFotoLabel(`Foto lista: ${file.name}`); setFotoOk(true) }
   }
 
   async function agregarFotoAbono(abonoId, e) {
-    const file = e.target.files?.[0]
-    if (!file) return
-    const path = await subirFoto(file)
-    if (!path) return
+    const file = e.target.files?.[0]; if (!file) return
+    const path = await subirFoto(file); if (!path) return
     await supabase.from('abonos_clientes').update({ foto_url: path }).eq('id', abonoId)
     await recargarDetalle()
+  }
+
+  async function descargarPDFTicket(t) {
+    setImprimiendo(t.id)
+    const config = JSON.parse(localStorage.getItem('ticket_config') || '{}')
+    try {
+      await imprimirTicketVenta({ numero: t.numero, cliente: detalle.nombre, fecha: t.creado_en, items: t.ticket_items || [], total: t.total, config })
+    } catch (err) { alert('Error al generar PDF: ' + err.message) }
+    setImprimiendo(null)
   }
 
   function calcPeriodo() {
@@ -210,8 +210,7 @@ export default function Creditos() {
   }
 
   function getSaldoCliente(id) {
-    const s = saldos[id]
-    if (!s) return 0
+    const s = saldos[id]; if (!s) return 0
     return Math.max(0, s.compras - s.abonado)
   }
 
@@ -232,7 +231,7 @@ export default function Creditos() {
           </>
         ) : (
           <div style={{ display: 'flex', gap: 6, flex: 1, flexWrap: 'wrap' }}>
-            <input value={nombreEditCli} onChange={e => setNombreEditCli(e.target.value)} style={{ flex: 1, minWidth: 140 }} placeholder="Nombre del cliente" />
+            <input value={nombreEditCli} onChange={e => setNombreEditCli(e.target.value)} style={{ flex: 1, minWidth: 140 }} />
             <input value={telEditCli} onChange={e => setTelEditCli(e.target.value)} style={{ width: 130 }} placeholder="Teléfono" />
             <button className="btn btn-sm" onClick={() => setEditandoCliente(false)}>Cancelar</button>
             <button className="btn btn-p btn-sm" onClick={guardarNombreCliente}>Guardar</button>
@@ -292,10 +291,11 @@ export default function Creditos() {
                 <div className="rs">{t.ticket_items?.map(i => i.descripcion).join(', ')}</div>
                 {!liquidado && <div style={{ fontSize: 12, color: 'var(--red)', fontWeight: 600, marginTop: 2 }}>Pendiente: ${Math.max(0, saldoT).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>}
               </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                 {liquidado ? <div className="amt green">$0.00</div> : <div className="amt red">${Math.max(0, saldoT).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>}
-                <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--blue)', padding: '3px 8px' }} onClick={() => setEditandoTicket({ ...t, fecha_edit: t.creado_en.split('T')[0] })}>Editar</button>
-                <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--red)', padding: '3px 8px' }} onClick={() => eliminarTicket(t)}>Eliminar</button>
+                <button className="btn btn-sm btn-p" style={{ fontSize: 10, padding: '2px 7px' }} onClick={() => descargarPDFTicket(t)} disabled={imprimiendo === t.id}>{imprimiendo === t.id ? '...' : 'PDF'}</button>
+                <button className="btn btn-sm" style={{ fontSize: 10, color: 'var(--blue)', padding: '2px 7px' }} onClick={() => setEditandoTicket({ ...t, fecha_edit: t.creado_en.split('T')[0] })}>Editar</button>
+                <button className="btn btn-sm" style={{ fontSize: 10, color: 'var(--red)', padding: '2px 7px' }} onClick={() => eliminarTicket(t)}>Eliminar</button>
               </div>
             </div>
           )
@@ -311,8 +311,7 @@ export default function Creditos() {
               <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Editar abono</div>
               <div className="g2">
                 <div className="inp-row"><label>Monto</label><input value={editandoAbono.monto} onChange={e => setEditandoAbono(v => ({ ...v, monto: e.target.value }))} /></div>
-                <div className="inp-row">
-                  <label>Forma de pago</label>
+                <div className="inp-row"><label>Forma de pago</label>
                   <select value={editandoAbono.forma_pago} onChange={e => setEditandoAbono(v => ({ ...v, forma_pago: e.target.value }))}>
                     <option value="transferencia">Transferencia</option>
                     <option value="efectivo">Efectivo</option>
@@ -331,15 +330,10 @@ export default function Creditos() {
                 {a.forma_pago === 'transferencia' ? '⇄' : a.forma_pago === 'efectivo' ? '$' : '↓'}
               </div>
               <div className="ri">
-                <div className="rn">
-                  {a.forma_pago.charAt(0).toUpperCase() + a.forma_pago.slice(1)}{' '}
-                  <span className={`tag ${a.tipo === 'general' ? 'tag-gral' : 'tag-esp'}`}>
-                    {a.tipo === 'general' ? 'Al total' : a.tipo === 'multiple' ? `${a.abonos_clientes_detalle?.length || 0} compras` : 'Compra esp.'}
-                  </span>
-                </div>
+                <div className="rn">{a.forma_pago.charAt(0).toUpperCase() + a.forma_pago.slice(1)} <span className={`tag ${a.tipo === 'general' ? 'tag-gral' : 'tag-esp'}`}>{a.tipo === 'general' ? 'Al total' : a.tipo === 'multiple' ? `${a.abonos_clientes_detalle?.length || 0} compras` : 'Compra esp.'}</span></div>
                 <div className="rs">{new Date(a.creado_en).toLocaleDateString('es-MX')} {new Date(a.creado_en).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' })}</div>
               </div>
-              <label className={`ev-thumb${a.foto_url ? ' has' : ''}`} title={a.foto_url ? 'Ver evidencia' : 'Agregar foto'}>
+              <label className={`ev-thumb${a.foto_url ? ' has' : ''}`}>
                 {a.foto_url ? 'IMG' : '+'}
                 {!a.foto_url && <input type="file" accept="image/*" style={{ display: 'none' }} onChange={e => agregarFotoAbono(a.id, e)} />}
               </label>
@@ -396,12 +390,8 @@ export default function Creditos() {
             </div>
           )}
           <div className="g2">
-            <div className="inp-row">
-              <label>Monto total del abono</label>
-              <input value={montoAbono} onChange={e => onMontoChange(e.target.value)} placeholder="0.00" />
-            </div>
-            <div className="inp-row">
-              <label>Forma de pago</label>
+            <div className="inp-row"><label>Monto total del abono</label><input value={montoAbono} onChange={e => onMontoChange(e.target.value)} placeholder="0.00" /></div>
+            <div className="inp-row"><label>Forma de pago</label>
               <select value={formaPago} onChange={e => setFormaPago(e.target.value)}>
                 <option value="transferencia">Transferencia</option>
                 <option value="efectivo">Efectivo</option>
@@ -416,9 +406,7 @@ export default function Creditos() {
           <div style={{ fontSize: 11, color: 'var(--text2)', marginTop: 4 }}>También puedes agregar la foto después desde el historial</div>
           <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
             <button className="btn btn-sm" onClick={() => { setAbonoForm(false); setTicketsSeleccionados([]); setDistribucion({}) }}>Cancelar</button>
-            <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={confirmarAbono} disabled={uploading}>
-              {uploading ? 'Subiendo...' : 'Confirmar abono'}
-            </button>
+            <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={confirmarAbono} disabled={uploading}>{uploading ? 'Subiendo...' : 'Confirmar abono'}</button>
           </div>
         </div>
       )}
@@ -428,15 +416,35 @@ export default function Creditos() {
 
   return (
     <div>
-      <div className="metrics">
-        <div className="met"><div className="met-l">Total por cobrar</div><div className="met-v red">${totalPorCobrar.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div></div>
-        <div className="met"><div className="met-l">Clientes activos</div><div className="met-v">{clientes.length}</div></div>
-        <div className="met"><div className="met-l">Cobrado total</div><div className="met-v green">${totalAbonado.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div></div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+        <div className="metrics" style={{ flex: 1, marginBottom: 0 }}>
+          <div className="met"><div className="met-l">Total por cobrar</div><div className="met-v red">${totalPorCobrar.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div></div>
+          <div className="met"><div className="met-l">Clientes activos</div><div className="met-v">{clientes.length}</div></div>
+          <div className="met"><div className="met-l">Cobrado total</div><div className="met-v green">${totalAbonado.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div></div>
+        </div>
       </div>
-      <div className="sec">Clientes con crédito</div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="sec" style={{ margin: 0 }}>Clientes con crédito</div>
+          <button className="btn btn-sm" style={{ fontSize: 11 }} onClick={abrirBusq}>Buscar <span className="kbd">F10</span></button>
+        </div>
+        <button className="btn btn-p btn-sm" onClick={() => {
+          const nombre = prompt('Nombre del cliente:')
+          if (!nombre) return
+          const tel = prompt('Teléfono (opcional):') || ''
+          supabase.from('clientes').insert({ nombre, telefono: tel }).then(loadClientes)
+        }}>+ Nuevo cliente</button>
+      </div>
+
+      {busqOpen && (
+        <div style={{ marginBottom: 10 }}>
+          <input ref={busqRef} value={busqQuery} onChange={e => setBusqQuery(e.target.value)} placeholder="Buscar cliente..." style={{ marginBottom: 0 }} />
+        </div>
+      )}
+
       <div className="card">
-        {clientes.length === 0 && <div style={{ padding: '14px', fontSize: 13, color: 'var(--text2)' }}>Sin clientes. Agrega el primero.</div>}
-        {clientes.map((c, i) => {
+        {(busqOpen ? clientesFiltrados : clientes).length === 0 && <div style={{ padding: '14px', fontSize: 13, color: 'var(--text2)' }}>{busqOpen ? 'Sin resultados' : 'Sin clientes. Agrega el primero.'}</div>}
+        {(busqOpen ? clientesFiltrados : clientes).map((c, i) => {
           const saldo = getSaldoCliente(c.id)
           const colors = ['av-b','av-t','av-a','av-c','av-p']
           const initials = c.nombre.split(' ').map(w => w[0]).join('').slice(0,2).toUpperCase()
@@ -455,12 +463,6 @@ export default function Creditos() {
           )
         })}
       </div>
-      <button className="btn btn-p btn-f" style={{ fontSize: 13 }} onClick={() => {
-        const nombre = prompt('Nombre del cliente:')
-        if (!nombre) return
-        const tel = prompt('Teléfono (opcional):') || ''
-        supabase.from('clientes').insert({ nombre, telefono: tel }).then(loadClientes)
-      }}>+ Nuevo cliente</button>
     </div>
   )
 }
