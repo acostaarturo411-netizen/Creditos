@@ -114,12 +114,23 @@ export async function imprimirTicketVenta({ numero, cliente, fecha, items, total
   const fs = parseFloat(config.font_size)||(mm===80?8:7)
   const lh = fs*0.68
 
-  // Un solo documento con altura generosa — la térmica corta automáticamente
-  const doc = new jsPDF({unit:'mm',format:[mm,800]})
+  // Pasada 1: calcular altura exacta
+  const tmp = new jsPDF({unit:'mm',format:[mm,2000]})
+  tmp.setFont('courier','normal')
+  tmp.setFontSize(fs)
+  let yT = 2  // margen mínimo
+  yT = dibujar(tmp,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,false,yT)
+  yT += 4
+  yT = dibujar(tmp,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,true,yT)
+  const alturaExacta = Math.ceil(yT) + 4
+
+  // Pasada 2: documento con altura exacta
+  const doc = new jsPDF({unit:'mm',format:[mm,alturaExacta]})
   doc.setFont('courier','normal')
-  let y = 6
+  doc.setFontSize(fs)
+  let y = 2
   y = dibujar(doc,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,false,y)
-  y += 6
+  y += 4
   dibujar(doc,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,true,y)
 
   doc.save(`Ticket_${numero}_${cliente.replace(/\s/g,'_')}.pdf`)
