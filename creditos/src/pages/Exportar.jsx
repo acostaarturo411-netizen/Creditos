@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
+import { imprimirTicketVenta } from '../lib/ticketPDF'
 
 const ANCHO = 32
 function linea(c = '-') { return c.repeat(ANCHO) }
@@ -11,6 +12,7 @@ function generarLineasTicket(config, titulo, nombre, compras, abonos, totalCompr
   const lineas = []
   lineas.push({ t: 'titulo', v: config.nombre_negocio || 'CREDITOS' })
   if (config.slogan) lineas.push({ t: 'sub', v: config.slogan })
+  if (config.telefono) lineas.push({ t: 'sub', v: config.telefono })
   lineas.push({ t: 'sep' })
   lineas.push({ t: 'bold', v: nombre })
   lineas.push({ t: 'small', v: titulo })
@@ -19,7 +21,7 @@ function generarLineasTicket(config, titulo, nombre, compras, abonos, totalCompr
   lineas.push({ t: 'bold', v: 'COMPRAS:' })
   compras.forEach(c => {
     const f = new Date(c.creado_en).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit' })
-    const desc = truncar(c.descripcion || c.productos || 'Compra', 18)
+    const desc = truncar(c.descripcion || 'Compra', 18)
     const monto = `$${parseFloat(c.total).toLocaleString('es-MX')}`
     lineas.push({ t: 'fila', iz: `${f} ${desc}`, de: monto })
   })
@@ -42,52 +44,48 @@ function generarLineasTicket(config, titulo, nombre, compras, abonos, totalCompr
   return lineas
 }
 
-async function imprimirPDF(lineas, nombreArchivo, logoBase64) {
+async function imprimirConcentradoPDF(lineas, nombreArchivo, logoBase64, config) {
   const { jsPDF } = await import('jspdf')
-  const doc = new jsPDF({ unit: 'mm', format: [58, 297], orientation: 'portrait' })
-  const ancho = 54
+  const mm = config.ancho === '80' ? 80 : 58
+  const doc = new jsPDF({ unit: 'mm', format: [mm, 297], orientation: 'portrait' })
+  const ancho = mm - 4
   const margen = 2
   let y = 6
-  const lh = 4.5
+  const fs = parseFloat(config.font_size) || (mm === 80 ? 8 : 7)
+  const lh = fs * 0.65
 
   doc.setFont('courier', 'normal')
 
   if (logoBase64) {
-    try {
-      doc.addImage(logoBase64, 'JPEG', margen + 8, y, 38, 15)
-      y += 18
-    } catch(e) {}
+    try { doc.addImage(logoBase64, 'JPEG', margen + (mm === 80 ? 10 : 4), y, mm === 80 ? 60 : 46, 16); y += 19 } catch(e) {}
   }
 
   for (const l of lineas) {
     if (l.t === 'titulo') {
-      doc.setFontSize(11); doc.setFont('courier', 'bold')
-      doc.text(l.v, ancho / 2 + margen, y, { align: 'center' }); y += lh + 1
-      doc.setFont('courier', 'normal'); doc.setFontSize(7)
-    } else if (l.t === 'sub') {
-      doc.setFontSize(7); doc.setFont('courier', 'normal')
-      doc.text(l.v, ancho / 2 + margen, y, { align: 'center' }); y += lh
-    } else if (l.t === 'centro') {
-      doc.setFontSize(7); doc.setFont('courier', 'normal')
-      doc.text(l.v, ancho / 2 + margen, y, { align: 'center' }); y += lh
+      doc.setFontSize(fs+3); doc.setFont('courier', 'bold')
+      doc.text(l.v, (mm/2)+margen, y, { align: 'center' }); y += lh + 1
+      doc.setFont('courier', 'normal'); doc.setFontSize(fs)
+    } else if (l.t === 'sub' || l.t === 'centro') {
+      doc.setFontSize(fs); doc.setFont('courier', 'normal')
+      doc.text(l.v, (mm/2)+margen, y, { align: 'center' }); y += lh
     } else if (l.t === 'sep') {
-      doc.setFontSize(7); doc.text('--------------------------------', margen, y); y += lh
+      doc.setFontSize(fs); doc.text('-'.repeat(Math.floor(ancho/1.8)), margen, y); y += lh
     } else if (l.t === 'sep2') {
-      doc.setFontSize(7); doc.text('================================', margen, y); y += lh
+      doc.setFontSize(fs); doc.text('='.repeat(Math.floor(ancho/1.8)), margen, y); y += lh
     } else if (l.t === 'bold') {
-      doc.setFontSize(7.5); doc.setFont('courier', 'bold')
+      doc.setFontSize(fs+0.5); doc.setFont('courier', 'bold')
       doc.text(l.v, margen, y); y += lh
-      doc.setFont('courier', 'normal'); doc.setFontSize(7)
+      doc.setFont('courier', 'normal'); doc.setFontSize(fs)
     } else if (l.t === 'small') {
-      doc.setFontSize(6.5); doc.setFont('courier', 'normal')
-      doc.text(l.v, margen, y); y += lh - 0.5
+      doc.setFontSize(fs-0.5); doc.setFont('courier', 'normal')
+      doc.text(l.v, margen, y); y += lh - 0.3
     } else if (l.t === 'fila') {
-      doc.setFontSize(l.grande ? 8 : 7)
+      doc.setFontSize(l.grande ? fs+1 : fs)
       if (l.bold) doc.setFont('courier', 'bold'); else doc.setFont('courier', 'normal')
       doc.text(l.iz, margen, y)
-      doc.text(l.de, ancho + margen, y, { align: 'right' }); y += lh
+      doc.text(l.de, mm - margen, y, { align: 'right' }); y += lh
     }
-    if (y > doc.internal.pageSize.getHeight() - 10) { doc.addPage([58, 297]); y = 6 }
+    if (y > doc.internal.pageSize.getHeight() - 10) { doc.addPage([mm, 297]); y = 6 }
   }
   doc.save(`${nombreArchivo}.pdf`)
 }
@@ -103,18 +101,23 @@ export default function Exportar() {
   const [listo, setListo] = useState(false)
   const [confirmarLimpiar, setConfirmarLimpiar] = useState(false)
   const [configOpen, setConfigOpen] = useState(false)
-  const [config, setConfig] = useState({ nombre_negocio: '', slogan: '', pie: '', logo: null })
+  const [config, setConfig] = useState({
+    nombre_negocio: '', slogan: '', pie: '', telefono: '',
+    logo: null, font_size: 7, ancho: '58'
+  })
   const [logoPreview, setLogoPreview] = useState(null)
 
   useEffect(() => {
     supabase.from('clientes').select('id,nombre').order('nombre').then(({ data }) => setClientes(data || []))
     supabase.from('proveedores').select('id,nombre').order('nombre').then(({ data }) => { setProveedores(data || []); setCargando(false) })
-    const saved = localStorage.getItem('ticket_config')
-    if (saved) { const c = JSON.parse(saved); setConfig(c); if (c.logo) setLogoPreview(c.logo) }
+    try {
+      const saved = localStorage.getItem('ticket_config')
+      if (saved) { const c = JSON.parse(saved); setConfig(c); if (c.logo) setLogoPreview(c.logo) }
+    } catch(e) {}
   }, [])
 
   function guardarConfig() {
-    localStorage.setItem('ticket_config', JSON.stringify(config))
+    try { localStorage.setItem('ticket_config', JSON.stringify(config)) } catch(e) {}
     setConfigOpen(false)
     alert('Configuración guardada')
   }
@@ -149,7 +152,7 @@ export default function Exportar() {
     const totalAbonado = (abonosData || []).reduce((s, a) => s + a.monto, 0)
     const saldo = Math.max(0, totalComprado - totalAbonado)
     const lineas = generarLineasTicket(config, 'CLIENTE', cliente.nombre, comprasFiltradas, abonosData || [], totalComprado, totalAbonado, saldo)
-    await imprimirPDF(lineas, `CreditOS_Cliente_${cliente.nombre.replace(/\s/g,'_')}`, config.logo)
+    await imprimirConcentradoPDF(lineas, `CreditOS_Cliente_${cliente.nombre.replace(/\s/g,'_')}`, config.logo, config)
     setExportando(false)
   }
 
@@ -171,7 +174,7 @@ export default function Exportar() {
     const totalAbonado = (abonosData || []).reduce((s, a) => s + a.monto, 0)
     const saldo = Math.max(0, totalComprado - totalAbonado)
     const lineas = generarLineasTicket(config, 'PROVEEDOR', proveedor.nombre, comprasFiltradas, abonosData || [], totalComprado, totalAbonado, saldo)
-    await imprimirPDF(lineas, `CreditOS_Proveedor_${proveedor.nombre.replace(/\s/g,'_')}`, config.logo)
+    await imprimirConcentradoPDF(lineas, `CreditOS_Proveedor_${proveedor.nombre.replace(/\s/g,'_')}`, config.logo, config)
     setExportando(false)
   }
 
@@ -236,21 +239,34 @@ export default function Exportar() {
       {configOpen && (
         <div className="abono-form" style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Configuración del ticket</div>
-          <div className="inp-row"><label>Nombre del negocio</label><input value={config.nombre_negocio} onChange={e => setConfig(v=>({...v,nombre_negocio:e.target.value}))} placeholder="Mi Negocio" /></div>
-          <div className="inp-row"><label>Slogan o subtítulo</label><input value={config.slogan} onChange={e => setConfig(v=>({...v,slogan:e.target.value}))} placeholder="Frase corta opcional" /></div>
-          <div className="inp-row"><label>Pie de página</label><input value={config.pie} onChange={e => setConfig(v=>({...v,pie:e.target.value}))} placeholder="Gracias por su preferencia" /></div>
+          <div className="inp-row"><label>Nombre del negocio</label><input value={config.nombre_negocio||''} onChange={e => setConfig(v=>({...v,nombre_negocio:e.target.value}))} placeholder="Mi Negocio" /></div>
+          <div className="inp-row"><label>Slogan o subtítulo</label><input value={config.slogan||''} onChange={e => setConfig(v=>({...v,slogan:e.target.value}))} placeholder="Frase corta opcional" /></div>
           <div className="g2">
-            <div className="inp-row"><label>Teléfono (opcional)</label><input value={config.telefono||''} onChange={e => setConfig(v=>({...v,telefono:e.target.value}))} placeholder="444 123 4567" /></div>
+            <div className="inp-row"><label>Teléfono</label><input value={config.telefono||''} onChange={e => setConfig(v=>({...v,telefono:e.target.value}))} placeholder="444 123 4567" /></div>
             <div className="inp-row"><label>Tamaño de fuente (6-9)</label><input type="number" value={config.font_size||7} onChange={e => setConfig(v=>({...v,font_size:e.target.value}))} min="6" max="9" step="0.5" /></div>
           </div>
+          <div className="inp-row"><label>Pie de página</label><input value={config.pie||''} onChange={e => setConfig(v=>({...v,pie:e.target.value}))} placeholder="Gracias por su preferencia" /></div>
           <div className="inp-row">
-            <label>Logo (imagen)</label>
+            <label>Ancho de impresora</label>
+            <div style={{ display: 'flex', gap: 20, marginTop: 6 }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14, color: 'var(--text)' }}>
+                <input type="radio" name="ancho" value="58" checked={(config.ancho||'58')==='58'} onChange={e => setConfig(v=>({...v,ancho:e.target.value}))} style={{ width: 'auto' }} />
+                58mm
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14, color: 'var(--text)' }}>
+                <input type="radio" name="ancho" value="80" checked={config.ancho==='80'} onChange={e => setConfig(v=>({...v,ancho:e.target.value}))} style={{ width: 'auto' }} />
+                80mm
+              </label>
+            </div>
+          </div>
+          <div className="inp-row">
+            <label>Logo (imagen JPEG)</label>
             <label className={`foto-upload${logoPreview ? ' ok' : ''}`}>
-              {logoPreview ? 'Logo cargado — clic para cambiar' : '+ Subir logo (JPG o PNG)'}
-              <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogo} />
+              {logoPreview ? 'Logo cargado — clic para cambiar' : '+ Subir logo (JPEG)'}
+              <input type="file" accept="image/jpeg,image/jpg" style={{ display: 'none' }} onChange={handleLogo} />
             </label>
           </div>
-          {logoPreview && <img src={logoPreview} alt="Logo" style={{ maxWidth: 120, maxHeight: 60, borderRadius: 6, marginBottom: 8, objectFit: 'contain' }} />}
+          {logoPreview && <img src={logoPreview} alt="Logo" style={{ maxWidth: 140, maxHeight: 60, borderRadius: 6, marginBottom: 8, objectFit: 'contain' }} />}
           <div style={{ display: 'flex', gap: 6 }}>
             <button className="btn btn-sm" onClick={() => setConfigOpen(false)}>Cancelar</button>
             <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={guardarConfig}>Guardar configuración</button>
@@ -279,7 +295,7 @@ export default function Exportar() {
               </div>
               <span style={{ fontSize: 13, color: 'var(--text2)' }}>Incluir compras ya liquidadas</span>
             </div>
-            <button className="btn btn-p btn-f" onClick={exportarCliente} disabled={exportando || !seleccion}>
+            <button className="btn btn-p btn-f" onClick={exportarCliente} disabled={exportando||!seleccion}>
               {exportando ? 'Generando PDF...' : 'Generar e imprimir ticket'}
             </button>
           </>
@@ -300,7 +316,7 @@ export default function Exportar() {
               </div>
               <span style={{ fontSize: 13, color: 'var(--text2)' }}>Incluir compras ya liquidadas</span>
             </div>
-            <button className="btn btn-p btn-f" onClick={exportarProveedor} disabled={exportando || !seleccion}>
+            <button className="btn btn-p btn-f" onClick={exportarProveedor} disabled={exportando||!seleccion}>
               {exportando ? 'Generando PDF...' : 'Generar e imprimir ticket'}
             </button>
           </>
