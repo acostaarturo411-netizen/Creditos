@@ -94,8 +94,8 @@ function dibujar(doc, config, numero, cliente, fecha, items, total, mm, margen, 
   const letras = numALetras(parseFloat(total))
   const textoP = `Debo y pagare a la orden de ${negocio} en esta ciudad o en cualquier otra que se me requiera la cantidad de ${totalFmt} (${letras}) valor de la mercancia arriba descrita y que he recibido a mi entera satisfaccion. Este pagare es mercantil y esta regido por la Ley General de Titulos y Operaciones de Credito en su articulo 173.`
 
-  doc.setFontSize(fs-1)
-  const maxChars = mm === 80 ? 42 : 28
+  doc.setFontSize(fs)
+  const maxChars = mm === 80 ? 38 : 24
   const lineasP = partir(doc, textoP, maxChars)
   lineasP.forEach(l => { doc.text(l, margen, y); y+=lh-0.5 })
 
