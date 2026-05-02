@@ -112,10 +112,10 @@ export async function imprimirTicketVenta({ numero, cliente, fecha, items, total
   const mm = getMM(config)
   const margen = 2
   const fs = parseFloat(config.font_size)||(mm===80?8:7)
-  const lh = fs*0.68
+  const lh = fs*0.35  // jsPDF usa puntos, 1pt = 0.353mm
 
   // Pasada 1: calcular altura exacta
-  const tmp = new jsPDF({unit:'mm',format:[mm,2000]})
+  const tmp = new jsPDF({unit:'mm',format:[mm,2000],hotfixes:['px_scaling']})
   tmp.setFont('courier','normal')
   tmp.setFontSize(fs)
   let yT = 2  // margen mínimo
@@ -125,7 +125,7 @@ export async function imprimirTicketVenta({ numero, cliente, fecha, items, total
   const alturaExacta = Math.ceil(yT) + 4
 
   // Pasada 2: documento con altura exacta
-  const doc = new jsPDF({unit:'mm',format:[mm,alturaExacta]})
+  const doc = new jsPDF({unit:'mm',format:[mm,alturaExacta],hotfixes:['px_scaling']})
   doc.setFont('courier','normal')
   doc.setFontSize(fs)
   let y = 2
