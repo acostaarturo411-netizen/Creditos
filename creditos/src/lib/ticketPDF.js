@@ -1,11 +1,11 @@
-const ANCHO58 = 32
-const ANCHO80 = 46
-
-function getAncho(config) { return config.ancho === '80' ? ANCHO80 : ANCHO58 }
+// Usa milímetros reales para posicionar texto en lugar de caracteres
 function getMM(config) { return config.ancho === '80' ? 80 : 58 }
-function linea(c, ancho) { return (c || '-').repeat(ancho || ANCHO58) }
-function dosCol(iz, de, ancho) { ancho = ancho || ANCHO58; return iz + ' '.repeat(Math.max(1, ancho - iz.length - de.length)) + de }
-function truncar(t, max) { return t && t.length > max ? t.slice(0, max - 1) + '.' : (t || '') }
+function truncarMM(doc, texto, maxMM) {
+  // Trunca texto si excede el ancho máximo en mm
+  let t = texto || ''
+  while (t.length > 1 && doc.getTextWidth(t) > maxMM) { t = t.slice(0, -1) }
+  return t
+}
 
 function numALetras(num) {
   const partes = num.toFixed(2).split('.')
@@ -23,84 +23,113 @@ function numALetras(num) {
     return centenas[c]+(resto>0?' '+convertir(resto):'')
   }
   let resultado = ''
-  if (entero >= 1000) { const miles = Math.floor(entero/1000); const resto = entero%1000; resultado = (miles===1?'MIL':convertir(miles)+' MIL')+(resto>0?' '+convertir(resto):'') }
-  else { resultado = convertir(entero) }
+  if (entero >= 1000000) {
+    const millones = Math.floor(entero/1000000); const restoM = entero%1000000
+    resultado = (millones===1?'UN MILLON':convertir(millones)+' MILLONES')+(restoM>0?' '+convertir(Math.floor(restoM/1000))+(restoM%1000>0?' '+convertir(restoM%1000):''):'')
+  } else if (entero >= 1000) {
+    const miles = Math.floor(entero/1000); const resto = entero%1000
+    resultado = (miles===1?'MIL':convertir(miles)+' MIL')+(resto>0?' '+convertir(resto):'')
+  } else { resultado = convertir(entero) }
   return resultado+' '+centavos+'/100 M.N.'
 }
 
-function dibujarBloque(doc, config, numero, cliente, fecha, items, total, ancho, mm, margen, fs, lh, esCopia, yInicio) {
+function dibujarBloque(doc, config, numero, cliente, fecha, items, total, mm, margen, fs, lh, esCopia, yInicio) {
   let y = yInicio
+  const anchoUtil = mm - (margen * 2) // ancho útil en mm
+  const xDer = mm - margen // margen derecho
 
   doc.setFontSize(fs); doc.setFont('courier', 'normal')
 
+  // ENCABEZADO COPIA
   if (esCopia) {
     doc.setFontSize(fs+2); doc.setFont('courier','bold')
-    doc.text(linea('=',ancho), margen, y); y+=lh
-    doc.text('*** C O P I A ***', (mm/2)+margen, y, {align:'center'}); y+=lh
-    doc.text(linea('=',ancho), margen, y); y+=lh
+    doc.text('='.repeat(40), margen, y); y += lh
+    doc.text('*** C O P I A ***', mm/2, y, {align:'center'}); y += lh
+    doc.text('='.repeat(40), margen, y); y += lh
     doc.setFont('courier','normal'); doc.setFontSize(fs)
   }
 
+  // LOGO (solo en original)
   if (!esCopia && config.logo) {
-    try { doc.addImage(config.logo,'JPEG',margen+(mm===80?10:4),y,mm===80?60:46,16); y+=19 } catch(e){}
+    try {
+      const logoW = mm === 80 ? 50 : 38
+      const logoX = margen + (anchoUtil - logoW) / 2
+      doc.addImage(config.logo, 'JPEG', logoX, y, logoW, 14)
+      y += 17
+    } catch(e) { console.warn('Logo error:', e) }
   }
 
+  // NOMBRE NEGOCIO
   doc.setFontSize(fs+3); doc.setFont('courier','bold')
-  doc.text(config.nombre_negocio||'CREDITOS', (mm/2)+margen, y, {align:'center'}); y+=lh+1
+  doc.text(config.nombre_negocio || 'CREDITOS', mm/2, y, {align:'center'}); y += lh + 1
   doc.setFont('courier','normal'); doc.setFontSize(fs)
 
-  if (config.slogan) { doc.text(config.slogan,(mm/2)+margen,y,{align:'center'}); y+=lh }
-  if (config.telefono) { doc.text(config.telefono,(mm/2)+margen,y,{align:'center'}); y+=lh }
+  if (config.slogan) { doc.text(config.slogan, mm/2, y, {align:'center'}); y += lh }
+  if (config.telefono) { doc.text(config.telefono, mm/2, y, {align:'center'}); y += lh }
 
-  doc.text(linea('=',ancho),margen,y); y+=lh
-  doc.text(`Cliente: ${truncar(cliente,ancho-9)}`,margen,y); y+=lh
+  // SEPARADOR
+  doc.text('='.repeat(40), margen, y); y += lh
+  doc.text(`Cliente: ${cliente}`, margen, y); y += lh
   const fechaStr = new Date(fecha).toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'2-digit'})
-  doc.text(`Ticket #${numero}  ${fechaStr}`,margen,y); y+=lh
-  doc.text(linea('-',ancho),margen,y); y+=lh
+  doc.text(`Ticket #${numero}  ${fechaStr}`, margen, y); y += lh
+  doc.text('-'.repeat(40), margen, y); y += lh
 
+  // PRODUCTOS
   items.forEach(item => {
     const cant = `${item.cantidad} ${item.unidad}`
-    const desc = truncar(item.descripcion, ancho-2)
+    const desc = item.descripcion || ''
     const precioU = `$${parseFloat(item.precio_unitario).toLocaleString('es-MX')}`
-    const sub = `$${parseFloat(item.subtotal||item.cantidad*item.precio_unitario).toLocaleString('es-MX')}`
-    doc.text(`${cant} ${desc}`,margen,y); y+=lh
-    doc.text(dosCol(`  ${precioU} c/u`,sub,ancho),margen,y); y+=lh
+    const sub = parseFloat(item.subtotal || item.cantidad * item.precio_unitario)
+    const subStr = `$${sub.toLocaleString('es-MX')}`
+
+    // Línea 1: cantidad + descripción
+    doc.text(`${cant} ${desc}`, margen, y); y += lh
+    // Línea 2: precio unitario alineado izq, subtotal alineado der
+    doc.text(`  ${precioU} c/u`, margen, y)
+    doc.text(subStr, xDer, y, {align:'right'})
+    y += lh
   })
 
-  doc.text(linea('-',ancho),margen,y); y+=lh
-  doc.setFontSize(fs+1); doc.setFont('courier','bold')
-  doc.text(dosCol('TOTAL:',`$${parseFloat(total).toLocaleString('es-MX')}`,ancho),margen,y); y+=lh+1
-  doc.setFontSize(fs); doc.setFont('courier','normal')
-  doc.text(linea('=',ancho),margen,y); y+=lh
-  if (config.pie) { doc.text(config.pie,(mm/2)+margen,y,{align:'center'}); y+=lh; doc.text(linea('=',ancho),margen,y); y+=lh }
+  // TOTAL
+  doc.text('-'.repeat(40), margen, y); y += lh
+  doc.setFontSize(fs+2); doc.setFont('courier','bold')
+  const totalStr = `$${parseFloat(total).toLocaleString('es-MX', {minimumFractionDigits:2})}`
+  doc.text('TOTAL:', margen, y)
+  doc.text(totalStr, xDer, y, {align:'right'})
+  y += lh + 1
 
-  // Pagaré
-  y+=2
-  doc.text(linea('-',ancho),margen,y); y+=lh
-  const negocio = config.nombre_negocio||'el beneficiario'
-  const totalLetras = numALetras(parseFloat(total))
+  doc.setFontSize(fs); doc.setFont('courier','normal')
+  doc.text('='.repeat(40), margen, y); y += lh
+
+  if (config.pie) { doc.text(config.pie, mm/2, y, {align:'center'}); y += lh }
+
+  // PAGARÉ
+  y += 2
+  doc.text('-'.repeat(40), margen, y); y += lh
+  const negocio = config.nombre_negocio || 'el beneficiario'
   const totalFmt = `$${parseFloat(total).toLocaleString('es-MX',{minimumFractionDigits:2})}`
-  const texto = [
-    `Debo y pagare a la orden de`,
-    `${truncar(negocio,ancho)} en esta`,
-    `ciudad o en cualquier otra que`,
-    `se me requiera la cantidad de`,
-    `${totalFmt}`,
-    `(${truncar(totalLetras,ancho)})`,
-    `valor de la mercancia arriba`,
-    `descrita y que he recibido a mi`,
-    `entera satisfaccion. Este pagare`,
-    `es mercantil y esta regido por`,
-    `la Ley General de Titulos y`,
-    `Operaciones de Credito Art.173.`,
+  const totalLetras = numALetras(parseFloat(total))
+
+  doc.setFontSize(fs - 0.5)
+  const textoPagere = [
+    `Debo y pagare a la orden de ${negocio}`,
+    `en esta ciudad o en cualquier otra`,
+    `que se me requiera la cantidad de`,
+    `${totalFmt} (${totalLetras})`,
+    `valor de la mercancia arriba descrita`,
+    `y que he recibido a mi entera`,
+    `satisfaccion. Este pagare es mercantil`,
+    `y esta regido por la Ley General de`,
+    `Titulos y Operaciones de Credito`,
+    `en su articulo 173.`,
   ]
-  doc.setFontSize(fs-0.5)
-  texto.forEach(t => { doc.text(t,margen,y); y+=lh-0.3 })
+  textoPagere.forEach(t => { doc.text(t, margen, y); y += lh - 0.2 })
+
   doc.setFontSize(fs)
-  y+=2
-  doc.text(`Nombre: ${'_'.repeat(ancho-8)}`,margen,y); y+=lh+3
-  doc.text(`Firma:  ${'_'.repeat(ancho-8)}`,margen,y); y+=lh+2
-  doc.text(linea('-',ancho),margen,y); y+=lh
+  y += 3
+  doc.text(`Nombre: ______________________________`, margen, y); y += lh + 4
+  doc.text(`Firma:  ______________________________`, margen, y); y += lh + 2
+  doc.text('-'.repeat(40), margen, y); y += lh
 
   return y
 }
@@ -108,27 +137,26 @@ function dibujarBloque(doc, config, numero, cliente, fecha, items, total, ancho,
 export async function imprimirTicketVenta({ numero, cliente, fecha, items, total, config = {} }) {
   const { jsPDF } = await import('jspdf')
   const mm = getMM(config)
-  const ancho = getAncho(config)
   const margen = 2
   const fs = parseFloat(config.font_size) || (mm === 80 ? 8 : 7)
-  const lh = fs * 0.65
+  const lh = fs * 0.68
 
-  // Primera pasada para calcular altura
+  // Primera pasada para medir altura total
   const docTemp = new jsPDF({ unit: 'mm', format: [mm, 500], orientation: 'portrait' })
-  docTemp.setFont('courier','normal')
+  docTemp.setFont('courier', 'normal')
   let y = 6
-  y = dibujarBloque(docTemp, config, numero, cliente, fecha, items, total, ancho, mm, margen, fs, lh, false, y)
-  y += 4
-  y = dibujarBloque(docTemp, config, numero, cliente, fecha, items, total, ancho, mm, margen, fs, lh, true, y)
-  const alturaFinal = y + 8
+  y = dibujarBloque(docTemp, config, numero, cliente, fecha, items, total, mm, margen, fs, lh, false, y)
+  y += 6
+  y = dibujarBloque(docTemp, config, numero, cliente, fecha, items, total, mm, margen, fs, lh, true, y)
+  const alturaFinal = y + 10
 
   // Segunda pasada con altura exacta
   const doc = new jsPDF({ unit: 'mm', format: [mm, alturaFinal], orientation: 'portrait' })
-  doc.setFont('courier','normal')
+  doc.setFont('courier', 'normal')
   let y2 = 6
-  y2 = dibujarBloque(doc, config, numero, cliente, fecha, items, total, ancho, mm, margen, fs, lh, false, y2)
-  y2 += 4
-  dibujarBloque(doc, config, numero, cliente, fecha, items, total, ancho, mm, margen, fs, lh, true, y2)
+  y2 = dibujarBloque(doc, config, numero, cliente, fecha, items, total, mm, margen, fs, lh, false, y2)
+  y2 += 6
+  dibujarBloque(doc, config, numero, cliente, fecha, items, total, mm, margen, fs, lh, true, y2)
 
   doc.save(`Ticket_${numero}_${cliente.replace(/\s/g,'_')}.pdf`)
 }
