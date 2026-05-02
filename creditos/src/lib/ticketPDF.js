@@ -21,14 +21,14 @@ function numALetras(num) {
   return res+' '+centavos+'/100 M.N.'
 }
 
-// Parte un texto largo en líneas que caben en maxMM usando la fuente actual del doc
-function partir(doc, texto, maxMM) {
+// Parte texto en líneas según caracteres máximos por línea
+function partir(doc, texto, maxChars) {
   const palabras = texto.split(' ')
   const lineas = []
   let actual = ''
   for (const p of palabras) {
     const prueba = actual ? actual+' '+p : p
-    if (doc.getTextWidth(prueba) <= maxMM) { actual = prueba }
+    if (prueba.length <= maxChars) { actual = prueba }
     else { if (actual) lineas.push(actual); actual = p }
   }
   if (actual) lineas.push(actual)
@@ -95,7 +95,8 @@ function dibujar(doc, config, numero, cliente, fecha, items, total, mm, margen, 
   const textoP = `Debo y pagare a la orden de ${negocio} en esta ciudad o en cualquier otra que se me requiera la cantidad de ${totalFmt} (${letras}) valor de la mercancia arriba descrita y que he recibido a mi entera satisfaccion. Este pagare es mercantil y esta regido por la Ley General de Titulos y Operaciones de Credito en su articulo 173.`
 
   doc.setFontSize(fs-1)
-  const lineasP = partir(doc, textoP, anchoUtil)
+  const maxChars = mm === 80 ? 42 : 28
+  const lineasP = partir(doc, textoP, maxChars)
   lineasP.forEach(l => { doc.text(l, margen, y); y+=lh-0.5 })
 
   doc.setFontSize(fs); y+=3
@@ -114,7 +115,7 @@ export async function imprimirTicketVenta({ numero, cliente, fecha, items, total
   const lh = fs*0.68
 
   // Pasada 1: medir altura
-  const tmp = new jsPDF({unit:'mm',format:[mm,600],orientation:'portrait'})
+  const tmp = new jsPDF({unit:'mm',format:[mm,600]})
   tmp.setFont('courier','normal')
   let y = 6
   y = dibujar(tmp,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,false,y)
@@ -123,7 +124,7 @@ export async function imprimirTicketVenta({ numero, cliente, fecha, items, total
   const altura = y+10
 
   // Pasada 2: generar PDF final
-  const doc = new jsPDF({unit:'mm',format:[mm,altura],orientation:'portrait'})
+  const doc = new jsPDF({unit:'mm',format:[mm,altura]})
   doc.setFont('courier','normal')
   let y2 = 6
   y2 = dibujar(doc,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,false,y2)
