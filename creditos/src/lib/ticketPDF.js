@@ -111,18 +111,27 @@ function dibujarBloque(doc, config, numero, cliente, fecha, items, total, mm, ma
   const totalLetras = numALetras(parseFloat(total))
 
   doc.setFontSize(fs - 0.5)
-  const textoPagere = [
-    `Debo y pagare a la orden de ${negocio}`,
-    `en esta ciudad o en cualquier otra`,
-    `que se me requiera la cantidad de`,
-    `${totalFmt} (${totalLetras})`,
-    `valor de la mercancia arriba descrita`,
-    `y que he recibido a mi entera`,
-    `satisfaccion. Este pagare es mercantil`,
-    `y esta regido por la Ley General de`,
-    `Titulos y Operaciones de Credito`,
-    `en su articulo 173.`,
-  ]
+  // Partir texto largo en líneas cortas según ancho en mm
+  function partirTexto(texto, maxMM) {
+    const palabras = texto.split(' ')
+    const lineasR = []
+    let lineaActual = ''
+    for (const palabra of palabras) {
+      const prueba = lineaActual ? lineaActual + ' ' + palabra : palabra
+      if (doc.getTextWidth(prueba) <= maxMM) {
+        lineaActual = prueba
+      } else {
+        if (lineaActual) lineasR.push(lineaActual)
+        lineaActual = palabra
+      }
+    }
+    if (lineaActual) lineasR.push(lineaActual)
+    return lineasR
+  }
+
+  const maxPagere = anchoUtil - 1
+  const textoCompleto = `Debo y pagare a la orden de ${negocio} en esta ciudad o en cualquier otra que se me requiera la cantidad de ${totalFmt} (${totalLetras}) valor de la mercancia arriba descrita y que he recibido a mi entera satisfaccion. Este pagare es mercantil y esta regido por la Ley General de Titulos y Operaciones de Credito en su articulo 173.`
+  const textoPagere = partirTexto(textoCompleto, maxPagere)
   textoPagere.forEach(t => { doc.text(t, margen, y); y += lh - 0.2 })
 
   doc.setFontSize(fs)
