@@ -21,6 +21,7 @@ export default function Venta() {
   const [genPrecio, setGenPrecio] = useState('')
   const [fase, setFase] = useState('buscar')
   const [imprimiendo, setImprimiendo] = useState(null)
+  const [editItem, setEditItem] = useState(null)
   const busqRef = useRef(null)
   const cantRef = useRef(null)
   const listRef = useRef(null)
@@ -93,7 +94,12 @@ export default function Venta() {
       precio_unitario: precio, subtotal: cant * precio,
       label: `${cant} ${selProd.unidad}${cant > 1 && !selProd.unidad.includes('media') ? 's' : ''} × $${precio.toLocaleString('es-MX')}`
     }])
-    cerrarBuscador()
+    // Encadenar: en vez de cerrar, volver a buscar con el campo enfocado y vacío
+    setSelProd(null)
+    setBusqQuery('')
+    setSelIdx(0)
+    setFase('buscar')
+    setTimeout(() => busqRef.current?.focus(), 60)
   }
 
   function agregarGenerico() {
@@ -105,6 +111,28 @@ export default function Venta() {
   }
 
   function quitarItem(id) { setItems(prev => prev.filter(i => i.id !== id)) }
+
+  function iniciarEdicionItem(item) {
+    setEditItem({ id: item.id, cantidad: String(item.cantidad), precio: String(item.precio_unitario) })
+  }
+
+  function guardarEdicionItem() {
+    if (!editItem) return
+    const cant = parseFloat(editItem.cantidad) || 1
+    const precio = parseFloat(String(editItem.precio).replace(/[^0-9.]/g, '')) || 0
+    setItems(prev => prev.map(i => {
+      if (i.id !== editItem.id) return i
+      const esMedia = i.unidad && i.unidad.includes('media')
+      return {
+        ...i,
+        cantidad: cant,
+        precio_unitario: precio,
+        subtotal: cant * precio,
+        label: `${cant} ${i.unidad}${cant > 1 && !esMedia ? 's' : ''} × $${precio.toLocaleString('es-MX')}`
+      }
+    }))
+    setEditItem(null)
+  }
 
   const total = items.reduce((s, i) => s + i.subtotal, 0)
   const totalHoy = ventasHoy.reduce((s, t) => s + t.total, 0)
@@ -209,13 +237,30 @@ export default function Venta() {
               <span style={{ fontSize: 11, color: 'var(--text2)' }}>{clienteNombre || 'Sin cliente'}</span>
             </div>
             <div style={{ padding: '6px 14px', minHeight: 80 }}>
-              {items.length === 0 && <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--text3)' }}>Usa F10 para agregar productos</div>}
+              {items.length === 0 && <div style={{ padding: '20px 0', textAlign: 'center', fontSize: 12, color: 'var(--text3)' }}>Usa F10 para agregar productos · toca un renglón para editarlo</div>}
               {items.map(item => (
-                <div key={item.id} className="ticket-item">
-                  <div className="ti-desc">{item.descripcion}<div className="ti-unit">{item.label}</div></div>
-                  <div className="ti-price">${item.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
-                  <div className="ti-del" onClick={() => quitarItem(item.id)}>×</div>
-                </div>
+                editItem?.id === item.id ? (
+                  <div key={item.id} style={{ padding: '8px 14px', borderBottom: '1px solid var(--border)', background: 'var(--surface2)' }}>
+                    <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 6 }}>{item.descripcion}</div>
+                    <div className="g2" style={{ marginBottom: 6 }}>
+                      <div className="inp-row"><label>Cantidad ({item.unidad})</label><input type="number" value={editItem.cantidad} onChange={e => setEditItem(v => ({ ...v, cantidad: e.target.value }))} min="0.5" step="0.5" autoFocus /></div>
+                      <div className="inp-row"><label>Precio</label><input value={editItem.precio} onChange={e => setEditItem(v => ({ ...v, precio: e.target.value }))} /></div>
+                    </div>
+                    <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 8 }}>
+                      Subtotal: <strong style={{ color: 'var(--text)' }}>${(parseFloat(editItem.cantidad || 0) * parseFloat(String(editItem.precio).replace(/[^0-9.]/g, '') || 0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong>
+                    </div>
+                    <div style={{ display: 'flex', gap: 6 }}>
+                      <button className="btn btn-sm" onClick={() => setEditItem(null)}>Cancelar</button>
+                      <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={guardarEdicionItem}>Guardar</button>
+                    </div>
+                  </div>
+                ) : (
+                  <div key={item.id} className="ticket-item">
+                    <div className="ti-desc" style={{ cursor: 'pointer' }} onClick={() => iniciarEdicionItem(item)}>{item.descripcion}<div className="ti-unit">{item.label}</div></div>
+                    <div className="ti-price" style={{ cursor: 'pointer' }} onClick={() => iniciarEdicionItem(item)}>${item.subtotal.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+                    <div className="ti-del" onClick={() => quitarItem(item.id)}>×</div>
+                  </div>
+                )
               ))}
             </div>
             <div className="ticket-total">
@@ -270,8 +315,8 @@ export default function Venta() {
                   <div style={{ fontSize: 12, color: 'var(--text2)', marginBottom: 10 }}>
                     Subtotal: <strong style={{ color: 'var(--text)' }}>${(parseFloat(cantidad||0) * parseFloat(precioEdit||0)).toLocaleString('es-MX', { minimumFractionDigits: 2 })}</strong>
                   </div>
-                  <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8 }}>Enter para agregar · Esc para regresar</div>
-                  <button className="btn btn-p btn-f" onClick={agregarDesdeB}>Agregar al ticket</button>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginBottom: 8 }}>Enter agrega y sigue con otro · Esc para regresar</div>
+                  <button className="btn btn-p btn-f" onClick={agregarDesdeB}>Agregar y seguir</button>
                 </div>
               )}
             </div>
