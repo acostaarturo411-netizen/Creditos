@@ -276,9 +276,27 @@ export default function Venta() {
       </div>
 
       {buscadorOpen && (
-        <div style={{ marginTop: 12 }}>
-          <div className="buscador-overlay">
-            <div className="buscador-modal">
+        <div
+          onClick={cerrarBuscador}
+          style={{
+            position: 'fixed', inset: 0, zIndex: 1000,
+            background: 'rgba(0,0,0,0.55)',
+            display: 'flex', alignItems: 'flex-start', justifyContent: 'center',
+            paddingTop: '8vh'
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            className="buscador-modal"
+            style={{
+              width: 'min(560px, 92vw)', maxHeight: '80vh', overflowY: 'auto',
+              background: 'var(--surface, #1a2235)',
+              border: '1px solid var(--border-md, rgba(255,255,255,0.12))',
+              borderRadius: 'var(--radius, 12px)',
+              padding: 16,
+              boxShadow: '0 20px 60px rgba(0,0,0,0.5)'
+            }}
+          >
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
                 <span style={{ fontSize: 14, fontWeight: 700 }}>
                   {fase === 'buscar' ? <>Buscar producto <span className="kbd">F10</span></> : <span style={{ color: 'var(--blue)' }}>{selProd?.nombre}</span>}
@@ -321,7 +339,6 @@ export default function Venta() {
               )}
             </div>
           </div>
-        </div>
       )}
     </div>
   )
