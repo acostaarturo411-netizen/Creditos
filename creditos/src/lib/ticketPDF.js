@@ -1,29 +1,37 @@
-function getMM(config) { return config.ancho === '80' ? 80 : 58 }
+// ══════════════════════════════════════════════════════════════
+// ticketPDF.js — generador de tickets térmicos (58/80mm)
+// Todas las medidas son configurables desde "Configurar ticket".
+// ══════════════════════════════════════════════════════════════
 
-function numALetras(num) {
-  const partes = num.toFixed(2).split('.')
+function numero(v, def) { const n = parseFloat(v); return isNaN(n) ? def : n }
+function getMM(config) { return String(config.ancho) === '80' ? 80 : 58 }
+// Ancho aproximado de un caracter Courier en mm (0.6 em; 1pt = 0.352778mm)
+function charW(fs) { return fs * 0.6 * 0.352778 }
+
+function numALetras(valor) {
+  const partes = valor.toFixed(2).split('.')
   const entero = parseInt(partes[0])
   const centavos = partes[1]
   const u = ['','UN','DOS','TRES','CUATRO','CINCO','SEIS','SIETE','OCHO','NUEVE','DIEZ','ONCE','DOCE','TRECE','CATORCE','QUINCE','DIECISEIS','DIECISIETE','DIECIOCHO','DIECINUEVE','VEINTE','VEINTIUN','VEINTIDOS','VEINTITRES','VEINTICUATRO','VEINTICINCO','VEINTISEIS','VEINTISIETE','VEINTIOCHO','VEINTINUEVE']
   const d = ['','','VEINTE','TREINTA','CUARENTA','CINCUENTA','SESENTA','SETENTA','OCHENTA','NOVENTA']
   const c = ['','CIENTO','DOSCIENTOS','TRESCIENTOS','CUATROCIENTOS','QUINIENTOS','SEISCIENTOS','SETECIENTOS','OCHOCIENTOS','NOVECIENTOS']
   function conv(n) {
-    if (n===0) return ''; if (n===100) return 'CIEN'
-    if (n<30) return u[n]
-    if (n<100) { const dd=Math.floor(n/10); const uu=n%10; return uu===0?d[dd]:d[dd]+' Y '+u[uu] }
-    const cc=Math.floor(n/100); const r=n%100
-    return c[cc]+(r>0?' '+conv(r):'')
+    if (n === 0) return ''; if (n === 100) return 'CIEN'
+    if (n < 30) return u[n]
+    if (n < 100) { const dd = Math.floor(n/10); const uu = n%10; return uu === 0 ? d[dd] : d[dd]+' Y '+u[uu] }
+    const cc = Math.floor(n/100); const r = n%100
+    return c[cc]+(r > 0 ? ' '+conv(r) : '')
   }
   let res = ''
-  if (entero>=1000000) { const m=Math.floor(entero/1000000); const r=entero%1000000; res=(m===1?'UN MILLON':conv(m)+' MILLONES')+(r>0?' '+conv(Math.floor(r/1000))+(r%1000>0?' '+conv(r%1000):''):'') }
-  else if (entero>=1000) { const m=Math.floor(entero/1000); const r=entero%1000; res=(m===1?'MIL':conv(m)+' MIL')+(r>0?' '+conv(r):'') }
-  else { res=conv(entero) }
+  if (entero >= 1000000) { const m = Math.floor(entero/1000000); const r = entero%1000000; res = (m === 1 ? 'UN MILLON' : conv(m)+' MILLONES')+(r > 0 ? ' '+conv(Math.floor(r/1000))+(r%1000 > 0 ? ' '+conv(r%1000) : '') : '') }
+  else if (entero >= 1000) { const m = Math.floor(entero/1000); const r = entero%1000; res = (m === 1 ? 'MIL' : conv(m)+' MIL')+(r > 0 ? ' '+conv(r) : '') }
+  else { res = conv(entero) }
   return res+' '+centavos+'/100 M.N.'
 }
 
-// Parte texto en líneas según caracteres máximos por línea
-function partir(doc, texto, maxChars) {
-  const palabras = texto.split(' ')
+// Parte texto en líneas de máximo maxChars caracteres (por palabras)
+function partir(texto, maxChars) {
+  const palabras = String(texto).split(' ')
   const lineas = []
   let actual = ''
   for (const p of palabras) {
@@ -35,103 +43,212 @@ function partir(doc, texto, maxChars) {
   return lineas
 }
 
-function dibujar(doc, config, numero, cliente, fecha, items, total, mm, margen, fs, lh, esCopia, yInicio) {
-  let y = yInicio
-  const xDer = mm - margen
-  const anchoUtil = mm - margen*2
-
-  doc.setFontSize(fs); doc.setFont('courier','normal')
-
-  if (esCopia) {
-    doc.setFontSize(fs+2); doc.setFont('courier','bold')
-    doc.text('='.repeat(38), margen, y); y+=lh
-    doc.text('*** C O P I A ***', mm/2, y, {align:'center'}); y+=lh
-    doc.text('='.repeat(38), margen, y); y+=lh
-    doc.setFont('courier','normal'); doc.setFontSize(fs)
+// Lee la config y aplica valores por defecto a todas las medidas
+function opciones(config) {
+  const mm = getMM(config)
+  const fs = numero(config.font_size, mm === 80 ? 8 : 7)
+  return {
+    mm, fs,
+    lh: fs * numero(config.interlineado, 0.35),
+    margenIzq: numero(config.margen_izq, 2),
+    margenDer: numero(config.margen_der, 2),
+    margenSup: numero(config.margen_sup, 2),
+    logoAncho: numero(config.logo_ancho, mm === 80 ? 48 : 36),
+    logoAlto: numero(config.logo_alto, 13),
+    logoAlign: config.logo_align || 'centro',
+    logoEnCopia: !!config.logo_en_copia,
+    altoMax: numero(config.alto_max, 280),
   }
-
-  if (!esCopia && config.logo) {
-    try {
-      const lw = mm===80 ? 48 : 36
-      doc.addImage(config.logo,'JPEG', margen+(anchoUtil-lw)/2, y, lw, 13)
-      y+=16
-    } catch(e){}
-  }
-
-  doc.setFontSize(fs+3); doc.setFont('courier','bold')
-  doc.text(config.nombre_negocio||'CREDITOS', mm/2, y, {align:'center'}); y+=lh+1
-  doc.setFont('courier','normal'); doc.setFontSize(fs)
-  if (config.slogan) { doc.text(config.slogan, mm/2, y, {align:'center'}); y+=lh }
-  if (config.telefono) { doc.text(config.telefono, mm/2, y, {align:'center'}); y+=lh }
-
-  doc.text('='.repeat(38), margen, y); y+=lh
-  doc.text(`Cliente: ${cliente}`, margen, y); y+=lh
-  const fStr = new Date(fecha).toLocaleDateString('es-MX',{day:'2-digit',month:'2-digit',year:'2-digit'})
-  doc.text(`Ticket #${numero}  ${fStr}`, margen, y); y+=lh
-  doc.text('-'.repeat(38), margen, y); y+=lh
-
-  items.forEach(item => {
-    doc.text(`${item.cantidad} ${item.unidad} ${item.descripcion||''}`, margen, y); y+=lh
-    const pu = `  $${parseFloat(item.precio_unitario).toLocaleString('es-MX')} c/u`
-    const sub = `$${parseFloat(item.subtotal||item.cantidad*item.precio_unitario).toLocaleString('es-MX')}`
-    doc.text(pu, margen, y)
-    doc.text(sub, xDer, y, {align:'right'}); y+=lh
-  })
-
-  doc.text('-'.repeat(38), margen, y); y+=lh
-  doc.setFontSize(fs+2); doc.setFont('courier','bold')
-  doc.text('TOTAL:', margen, y)
-  doc.text(`$${parseFloat(total).toLocaleString('es-MX',{minimumFractionDigits:2})}`, xDer, y, {align:'right'}); y+=lh+1
-  doc.setFont('courier','normal'); doc.setFontSize(fs)
-  doc.text('='.repeat(38), margen, y); y+=lh
-  if (config.pie) { doc.text(config.pie, mm/2, y, {align:'center'}); y+=lh }
-
-  // PAGARÉ
-  y+=2
-  doc.text('-'.repeat(38), margen, y); y+=lh
-  const negocio = config.nombre_negocio||'el beneficiario'
-  const totalFmt = `$${parseFloat(total).toLocaleString('es-MX',{minimumFractionDigits:2})}`
-  const letras = numALetras(parseFloat(total))
-  const textoP = `Debo y pagare a la orden de ${negocio} en esta ciudad o en cualquier otra que se me requiera la cantidad de ${totalFmt} (${letras}) valor de la mercancia arriba descrita y que he recibido a mi entera satisfaccion. Este pagare es mercantil y esta regido por la Ley General de Titulos y Operaciones de Credito en su articulo 173.`
-
-  doc.setFontSize(fs)
-  const maxChars = mm === 80 ? 38 : 24
-  const lineasP = partir(doc, textoP, maxChars)
-  lineasP.forEach(l => { doc.text(l, margen, y); y+=lh-0.5 })
-
-  doc.setFontSize(fs); y+=3
-  doc.text(`Nombre: ______________________________`, margen, y); y+=lh+4
-  doc.text(`Firma:  ______________________________`, margen, y); y+=lh+2
-  doc.text('-'.repeat(38), margen, y); y+=lh
-
-  return y
 }
 
-export async function imprimirTicketVenta({ numero, cliente, fecha, items, total, config={} }) {
+// Contexto de escritura con salto de página automático
+function crearCtx(doc, o, paginar, altoPagina) {
+  return {
+    doc, o, paginar, altoPagina,
+    y: o.margenSup + 3,
+    maxY: altoPagina - 5,
+    salto(necesita) {
+      if (this.paginar && this.y + (necesita || 0) > this.maxY) {
+        this.doc.addPage([o.mm, this.altoPagina])
+        this.y = o.margenSup + 3
+      }
+    },
+    linea(txt, x, opts, avance) {
+      this.salto(this.o.lh)
+      this.doc.text(txt, x, this.y, opts || undefined)
+      this.y += (avance !== undefined ? avance : this.o.lh)
+    },
+    espacio(a) { this.y += a },
+  }
+}
+
+// Dibuja un bloque completo de ticket (original o copia)
+function dibujarBloque(ctx, config, d, esCopia) {
+  const { doc, o } = ctx
+  const anchoUtil = o.mm - o.margenIzq - o.margenDer
+  const xDer = o.mm - o.margenDer
+  const xCentro = o.margenIzq + anchoUtil / 2
+  const nSep = Math.max(10, Math.floor(anchoUtil / charW(o.fs)))
+  const sep = (c) => c.repeat(nSep)
+
+  doc.setFontSize(o.fs); doc.setFont('courier', 'normal')
+
+  if (esCopia) {
+    const nSep2 = Math.max(10, Math.floor(anchoUtil / charW(o.fs + 2)))
+    doc.setFontSize(o.fs + 2); doc.setFont('courier', 'bold')
+    ctx.linea('='.repeat(nSep2), o.margenIzq)
+    ctx.linea('*** C O P I A ***', xCentro, { align: 'center' })
+    ctx.linea('='.repeat(nSep2), o.margenIzq)
+    doc.setFont('courier', 'normal'); doc.setFontSize(o.fs)
+  }
+
+  // Logo (medidas y posición configurables)
+  if (config.logo && (!esCopia || o.logoEnCopia)) {
+    try {
+      const tipo = String(config.logo).startsWith('data:image/png') ? 'PNG' : 'JPEG'
+      let x = o.margenIzq
+      if (o.logoAlign === 'centro') x = o.margenIzq + (anchoUtil - o.logoAncho) / 2
+      else if (o.logoAlign === 'derecha') x = xDer - o.logoAncho
+      ctx.salto(o.logoAlto + 3)
+      doc.addImage(config.logo, tipo, x, Math.max(1, ctx.y - o.lh * 0.6), o.logoAncho, o.logoAlto)
+      ctx.y += o.logoAlto + 2
+    } catch (e) { /* logo inválido: se omite */ }
+  }
+
+  // Encabezado
+  doc.setFontSize(o.fs + 3); doc.setFont('courier', 'bold')
+  ctx.linea(config.nombre_negocio || 'CREDITOS', xCentro, { align: 'center' }, o.lh + 1)
+  doc.setFont('courier', 'normal'); doc.setFontSize(o.fs)
+  if (config.slogan) ctx.linea(config.slogan, xCentro, { align: 'center' })
+  if (config.telefono) ctx.linea(config.telefono, xCentro, { align: 'center' })
+
+  ctx.linea(sep('='), o.margenIzq)
+  partir(`Cliente: ${d.cliente}`, nSep).forEach(l => ctx.linea(l, o.margenIzq))
+  const fStr = new Date(d.fecha).toLocaleDateString('es-MX', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  ctx.linea(`Ticket #${d.numero}  ${fStr}`, o.margenIzq)
+  ctx.linea(sep('-'), o.margenIzq)
+
+  // Productos (descripciones largas se parten en varias líneas)
+  d.items.forEach(item => {
+    const lineaProd = `${item.cantidad} ${item.unidad} ${item.descripcion || ''}`
+    partir(lineaProd, nSep).forEach(l => ctx.linea(l, o.margenIzq))
+    const pu = `  $${parseFloat(item.precio_unitario).toLocaleString('es-MX')} c/u`
+    const sub = `$${parseFloat(item.subtotal || item.cantidad * item.precio_unitario).toLocaleString('es-MX')}`
+    ctx.salto(o.lh)
+    doc.text(pu, o.margenIzq, ctx.y)
+    doc.text(sub, xDer, ctx.y, { align: 'right' })
+    ctx.y += o.lh
+  })
+
+  // Total
+  ctx.linea(sep('-'), o.margenIzq)
+  ctx.salto(o.lh + 1)
+  doc.setFontSize(o.fs + 2); doc.setFont('courier', 'bold')
+  doc.text('TOTAL:', o.margenIzq, ctx.y)
+  doc.text(`$${parseFloat(d.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`, xDer, ctx.y, { align: 'right' })
+  ctx.y += o.lh + 1
+  doc.setFont('courier', 'normal'); doc.setFontSize(o.fs)
+  ctx.linea(sep('='), o.margenIzq)
+  if (config.pie) ctx.linea(config.pie, xCentro, { align: 'center' })
+
+  // Pagaré
+  ctx.espacio(2)
+  ctx.linea(sep('-'), o.margenIzq)
+  const negocio = config.nombre_negocio || 'el beneficiario'
+  const totalFmt = `$${parseFloat(d.total).toLocaleString('es-MX', { minimumFractionDigits: 2 })}`
+  const letras = numALetras(parseFloat(d.total))
+  const textoP = `Debo y pagare a la orden de ${negocio} en esta ciudad o en cualquier otra que se me requiera la cantidad de ${totalFmt} (${letras}) valor de la mercancia arriba descrita y que he recibido a mi entera satisfaccion. Este pagare es mercantil y esta regido por la Ley General de Titulos y Operaciones de Credito en su articulo 173.`
+  partir(textoP, nSep).forEach(l => ctx.linea(l, o.margenIzq))
+
+  ctx.espacio(3)
+  const guiones = '_'.repeat(Math.max(10, nSep - 8))
+  ctx.linea(`Nombre: ${guiones}`, o.margenIzq, undefined, o.lh + 4)
+  ctx.linea(`Firma:  ${guiones}`, o.margenIzq, undefined, o.lh + 2)
+  ctx.linea(sep('-'), o.margenIzq)
+}
+
+// Construye el documento completo (original + copia) con paginación
+async function construirDoc(params) {
   const { jsPDF } = await import('jspdf')
-  const mm = getMM(config)
-  const margen = 2
-  const fs = parseFloat(config.font_size)||(mm===80?8:7)
-  const lh = fs*0.35  // jsPDF usa puntos, 1pt = 0.353mm
+  const config = params.config || {}
+  const o = opciones(config)
 
-  // Pasada 1: calcular altura exacta
-  const tmp = new jsPDF({unit:'mm',format:[mm,2000],hotfixes:['px_scaling']})
-  tmp.setFont('courier','normal')
-  tmp.setFontSize(fs)
-  let yT = 2  // margen mínimo
-  yT = dibujar(tmp,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,false,yT)
-  yT += 4
-  yT = dibujar(tmp,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,true,yT)
-  const alturaExacta = Math.ceil(yT) + 4
+  // Pasada 1: medir la altura total real
+  const tmp = new jsPDF({ unit: 'mm', format: [o.mm, 3000] })
+  tmp.setFont('courier', 'normal')
+  const ctx1 = crearCtx(tmp, o, false, 3000)
+  dibujarBloque(ctx1, config, params, false)
+  ctx1.espacio(4)
+  dibujarBloque(ctx1, config, params, true)
+  const altoTotal = Math.ceil(ctx1.y) + 4
 
-  // Pasada 2: documento con altura exacta
-  const doc = new jsPDF({unit:'mm',format:[mm,alturaExacta],hotfixes:['px_scaling']})
-  doc.setFont('courier','normal')
-  doc.setFontSize(fs)
-  let y = 2
-  y = dibujar(doc,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,false,y)
-  y += 4
-  dibujar(doc,config,numero,cliente,fecha,items,total,mm,margen,fs,lh,true,y)
+  let doc
+  if (altoTotal <= o.altoMax) {
+    // Cabe en una sola página: altura exacta (como siempre)
+    doc = new jsPDF({ unit: 'mm', format: [o.mm, altoTotal] })
+    doc.setFont('courier', 'normal')
+    const ctx = crearCtx(doc, o, false, altoTotal)
+    dibujarBloque(ctx, config, params, false)
+    ctx.espacio(4)
+    dibujarBloque(ctx, config, params, true)
+  } else {
+    // Ticket grande: se divide en páginas del alto máximo configurado
+    // para que el driver de la impresora no lo recorte.
+    doc = new jsPDF({ unit: 'mm', format: [o.mm, o.altoMax] })
+    doc.setFont('courier', 'normal')
+    const ctx = crearCtx(doc, o, true, o.altoMax)
+    dibujarBloque(ctx, config, params, false)
+    // La copia arranca en página nueva para un corte limpio
+    doc.addPage([o.mm, o.altoMax])
+    ctx.y = o.margenSup + 3
+    dibujarBloque(ctx, config, params, true)
+  }
+  return doc
+}
 
-  doc.save(`Ticket_${numero}_${cliente.replace(/\s/g,'_')}.pdf`)
+// Impresión rápida: abre el diálogo de imprimir directo, sin descargar
+function imprimirRapido(doc, nombreArchivo) {
+  try {
+    const blob = doc.output('blob')
+    const url = URL.createObjectURL(blob)
+    const iframe = document.createElement('iframe')
+    iframe.style.cssText = 'position:fixed;right:0;bottom:0;width:0;height:0;border:0;'
+    iframe.src = url
+    document.body.appendChild(iframe)
+    iframe.onload = () => {
+      setTimeout(() => {
+        try { iframe.contentWindow.focus(); iframe.contentWindow.print() }
+        catch (e) { window.open(url, '_blank') }
+      }, 400)
+    }
+    // Limpieza después de dar tiempo a imprimir
+    setTimeout(() => { try { URL.revokeObjectURL(url); iframe.remove() } catch (e) {} }, 120000)
+  } catch (e) {
+    doc.save(nombreArchivo)
+  }
+}
+
+export async function imprimirTicketVenta(params) {
+  const config = params.config || {}
+  const doc = await construirDoc(params)
+  const nombreArchivo = `Ticket_${params.numero}_${String(params.cliente || '').replace(/\s/g, '_')}.pdf`
+  if ((config.modo_impresion || 'rapido') === 'rapido') {
+    imprimirRapido(doc, nombreArchivo)
+  } else {
+    doc.save(nombreArchivo)
+  }
+}
+
+// Vista previa con datos de muestra (para "Configurar ticket")
+export async function generarVistaPrevia(config = {}) {
+  const items = [
+    { cantidad: 12, unidad: 'caja', descripcion: 'Ciruela USA', precio_unitario: 850, subtotal: 10200 },
+    { cantidad: 2, unidad: 'caja', descripcion: 'Golden', precio_unitario: 1000, subtotal: 2000 },
+    { cantidad: 5, unidad: 'pieza', descripcion: 'Pera Mantequilla', precio_unitario: 900, subtotal: 4500 },
+  ]
+  const doc = await construirDoc({
+    numero: 99, cliente: 'Cliente de Prueba', fecha: new Date().toISOString(),
+    items, total: 16700, config,
+  })
+  return doc.output('bloburl')
 }

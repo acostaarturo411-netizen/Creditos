@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
-import { imprimirTicketVenta } from '../lib/ticketPDF'
+import { imprimirTicketVenta, generarVistaPrevia } from '../lib/ticketPDF'
 
 const ANCHO = 32
 function linea(c = '-') { return c.repeat(ANCHO) }
@@ -52,12 +52,15 @@ async function imprimirConcentradoPDF(lineas, nombreArchivo, logoBase64, config)
   const margen = 2
   let y = 6
   const fs = parseFloat(config.font_size) || (mm === 80 ? 8 : 7)
-  const lh = fs * 0.65
+  const lh = fs * 0.35
 
   doc.setFont('courier', 'normal')
 
   if (logoBase64) {
-    try { doc.addImage(logoBase64, 'JPEG', margen + (mm === 80 ? 10 : 4), y, mm === 80 ? 60 : 46, 16); y += 19 } catch(e) {}
+    try {
+      const tipo = String(logoBase64).startsWith('data:image/png') ? 'PNG' : 'JPEG'
+      doc.addImage(logoBase64, tipo, margen + (mm === 80 ? 10 : 4), y, mm === 80 ? 60 : 46, 16); y += 19
+    } catch(e) {}
   }
 
   for (const l of lineas) {
@@ -103,18 +106,31 @@ export default function Exportar() {
   const [configOpen, setConfigOpen] = useState(false)
   const [config, setConfig] = useState({
     nombre_negocio: '', slogan: '', pie: '', telefono: '',
-    logo: null, font_size: 7, ancho: '58'
+    logo: null, font_size: 8, ancho: '58', interlineado: 0.35,
+    margen_izq: 2, margen_der: 2, margen_sup: 2,
+    logo_ancho: 48, logo_alto: 13, logo_align: 'centro', logo_en_copia: false,
+    alto_max: 280, modo_impresion: 'rapido'
   })
   const [logoPreview, setLogoPreview] = useState(null)
+  const [previewUri, setPreviewUri] = useState(null)
 
   useEffect(() => {
     supabase.from('clientes').select('id,nombre').order('nombre').then(({ data }) => setClientes(data || []))
     supabase.from('proveedores').select('id,nombre').order('nombre').then(({ data }) => { setProveedores(data || []); setCargando(false) })
     try {
       const saved = localStorage.getItem('ticket_config')
-      if (saved) { const c = JSON.parse(saved); setConfig(c); if (c.logo) setLogoPreview(c.logo) }
+      if (saved) { const c = JSON.parse(saved); setConfig(prev => ({ ...prev, ...c })); if (c.logo) setLogoPreview(c.logo) }
     } catch(e) {}
   }, [])
+
+  // Vista previa en vivo: se regenera sola al cambiar cualquier medida
+  useEffect(() => {
+    if (!configOpen) return
+    const t = setTimeout(async () => {
+      try { setPreviewUri(await generarVistaPrevia(config)) } catch (e) { console.warn('Preview:', e) }
+    }, 450)
+    return () => clearTimeout(t)
+  }, [JSON.stringify(config), configOpen])
 
   function guardarConfig() {
     try { localStorage.setItem('ticket_config', JSON.stringify(config)) } catch(e) {}
@@ -239,35 +255,102 @@ export default function Exportar() {
       {configOpen && (
         <div className="abono-form" style={{ marginBottom: 14 }}>
           <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 10 }}>Configuración del ticket</div>
-          <div className="inp-row"><label>Nombre del negocio</label><input value={config.nombre_negocio||''} onChange={e => setConfig(v=>({...v,nombre_negocio:e.target.value}))} placeholder="Mi Negocio" /></div>
-          <div className="inp-row"><label>Slogan o subtítulo</label><input value={config.slogan||''} onChange={e => setConfig(v=>({...v,slogan:e.target.value}))} placeholder="Frase corta opcional" /></div>
-          <div className="g2">
-            <div className="inp-row"><label>Teléfono</label><input value={config.telefono||''} onChange={e => setConfig(v=>({...v,telefono:e.target.value}))} placeholder="444 123 4567" /></div>
-            <div className="inp-row"><label>Tamaño de fuente (6-9)</label><input type="number" value={config.font_size||7} onChange={e => setConfig(v=>({...v,font_size:e.target.value}))} min="6" max="9" step="0.5" /></div>
-          </div>
-          <div className="inp-row"><label>Pie de página</label><input value={config.pie||''} onChange={e => setConfig(v=>({...v,pie:e.target.value}))} placeholder="Gracias por su preferencia" /></div>
-          <div className="inp-row">
-            <label>Ancho de impresora</label>
-            <div style={{ display: 'flex', gap: 20, marginTop: 6 }}>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14, color: 'var(--text)' }}>
-                <input type="radio" name="ancho" value="58" checked={(config.ancho||'58')==='58'} onChange={e => setConfig(v=>({...v,ancho:e.target.value}))} style={{ width: 'auto' }} />
-                58mm
-              </label>
-              <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14, color: 'var(--text)' }}>
-                <input type="radio" name="ancho" value="80" checked={config.ancho==='80'} onChange={e => setConfig(v=>({...v,ancho:e.target.value}))} style={{ width: 'auto' }} />
-                80mm
-              </label>
+          <div style={{ display: 'flex', gap: 16, flexWrap: 'wrap' }}>
+
+            <div style={{ flex: 1, minWidth: 260 }}>
+              <div className="inp-row"><label>Nombre del negocio</label><input value={config.nombre_negocio||''} onChange={e => setConfig(v=>({...v,nombre_negocio:e.target.value}))} placeholder="Mi Negocio" /></div>
+              <div className="inp-row"><label>Slogan o subtítulo</label><input value={config.slogan||''} onChange={e => setConfig(v=>({...v,slogan:e.target.value}))} placeholder="Frase corta opcional" /></div>
+              <div className="g2">
+                <div className="inp-row"><label>Teléfono</label><input value={config.telefono||''} onChange={e => setConfig(v=>({...v,telefono:e.target.value}))} placeholder="444 123 4567" /></div>
+                <div className="inp-row"><label>Pie de página</label><input value={config.pie||''} onChange={e => setConfig(v=>({...v,pie:e.target.value}))} placeholder="Gracias por su preferencia" /></div>
+              </div>
+
+              <div className="inp-row">
+                <label>Ancho de impresora</label>
+                <div style={{ display: 'flex', gap: 20, marginTop: 6 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14, color: 'var(--text)' }}>
+                    <input type="radio" name="ancho" value="58" checked={(config.ancho||'58')==='58'} onChange={e => setConfig(v=>({...v,ancho:e.target.value}))} style={{ width: 'auto' }} /> 58mm
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 14, color: 'var(--text)' }}>
+                    <input type="radio" name="ancho" value="80" checked={config.ancho==='80'} onChange={e => setConfig(v=>({...v,ancho:e.target.value}))} style={{ width: 'auto' }} /> 80mm
+                  </label>
+                </div>
+              </div>
+
+              <div className="g2">
+                <div className="inp-row"><label>Tamaño de fuente (6-10)</label><input type="number" value={config.font_size} onChange={e => setConfig(v=>({...v,font_size:e.target.value}))} min="6" max="10" step="0.5" /></div>
+                <div className="inp-row"><label>Interlineado (0.30-0.60)</label><input type="number" value={config.interlineado} onChange={e => setConfig(v=>({...v,interlineado:e.target.value}))} min="0.3" max="0.6" step="0.05" /></div>
+              </div>
+              <div className="g2">
+                <div className="inp-row"><label>Margen izquierdo (mm)</label><input type="number" value={config.margen_izq} onChange={e => setConfig(v=>({...v,margen_izq:e.target.value}))} min="0" max="10" step="0.5" /></div>
+                <div className="inp-row"><label>Margen derecho (mm)</label><input type="number" value={config.margen_der} onChange={e => setConfig(v=>({...v,margen_der:e.target.value}))} min="0" max="10" step="0.5" /></div>
+              </div>
+              <div className="g2">
+                <div className="inp-row"><label>Margen superior (mm)</label><input type="number" value={config.margen_sup} onChange={e => setConfig(v=>({...v,margen_sup:e.target.value}))} min="0" max="20" step="0.5" /></div>
+                <div className="inp-row"><label>Alto máx. de página (mm)</label><input type="number" value={config.alto_max} onChange={e => setConfig(v=>({...v,alto_max:e.target.value}))} min="100" max="1000" step="10" /></div>
+              </div>
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: -4, marginBottom: 8 }}>
+                Si el ticket supera el alto máximo, se divide en páginas para que la impresora no lo recorte. Usa un valor menor al alto del papel en Windows (ej. 280 si tu papel es de 297).
+              </div>
+
+              <div className="inp-row">
+                <label>Logo (imagen)</label>
+                <label className={`foto-upload${logoPreview ? ' ok' : ''}`}>
+                  {logoPreview ? 'Logo cargado — clic para cambiar' : '+ Subir logo (JPG o PNG)'}
+                  <input type="file" accept="image/*" style={{ display: 'none' }} onChange={handleLogo} />
+                </label>
+              </div>
+              {logoPreview && (
+                <>
+                  <img src={logoPreview} alt="Logo" style={{ maxWidth: 140, maxHeight: 60, borderRadius: 6, marginBottom: 8, objectFit: 'contain', background: '#fff', padding: 4 }} />
+                  <div className="g2">
+                    <div className="inp-row"><label>Ancho del logo (mm)</label><input type="number" value={config.logo_ancho} onChange={e => setConfig(v=>({...v,logo_ancho:e.target.value}))} min="10" max="80" step="1" /></div>
+                    <div className="inp-row"><label>Alto del logo (mm)</label><input type="number" value={config.logo_alto} onChange={e => setConfig(v=>({...v,logo_alto:e.target.value}))} min="5" max="60" step="1" /></div>
+                  </div>
+                  <div className="g2">
+                    <div className="inp-row">
+                      <label>Posición del logo</label>
+                      <select value={config.logo_align||'centro'} onChange={e => setConfig(v=>({...v,logo_align:e.target.value}))}>
+                        <option value="izquierda">Izquierda</option>
+                        <option value="centro">Centro</option>
+                        <option value="derecha">Derecha</option>
+                      </select>
+                    </div>
+                    <div className="inp-row">
+                      <label>Logo en la copia</label>
+                      <select value={config.logo_en_copia ? 'si' : 'no'} onChange={e => setConfig(v=>({...v,logo_en_copia:e.target.value==='si'}))}>
+                        <option value="no">No</option>
+                        <option value="si">Sí</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button className="btn btn-sm" style={{ marginBottom: 8, color: 'var(--red)' }} onClick={() => { setLogoPreview(null); setConfig(v => ({ ...v, logo: null })) }}>Quitar logo</button>
+                </>
+              )}
+
+              <div className="inp-row">
+                <label>Modo de impresión</label>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginTop: 6 }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}>
+                    <input type="radio" name="modoimp" value="rapido" checked={(config.modo_impresion||'rapido')==='rapido'} onChange={e => setConfig(v=>({...v,modo_impresion:e.target.value}))} style={{ width: 'auto' }} /> Rápido — abre la ventana de imprimir directo
+                  </label>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', fontSize: 13, color: 'var(--text)' }}>
+                    <input type="radio" name="modoimp" value="descargar" checked={config.modo_impresion==='descargar'} onChange={e => setConfig(v=>({...v,modo_impresion:e.target.value}))} style={{ width: 'auto' }} /> Descargar PDF — abrir con Adobe (como antes)
+                  </label>
+                </div>
+              </div>
             </div>
+
+            <div style={{ width: config.ancho === '80' ? 330 : 260, minWidth: 240 }}>
+              <div style={{ fontSize: 12, color: 'var(--text2)', fontWeight: 600, marginBottom: 6, textTransform: 'uppercase', letterSpacing: '.04em' }}>Vista previa</div>
+              {previewUri
+                ? <iframe title="Vista previa del ticket" src={previewUri} style={{ width: '100%', height: 480, border: '1px solid var(--border)', borderRadius: 8, background: '#525659' }} />
+                : <div style={{ fontSize: 12, color: 'var(--text2)', padding: 20 }}>Generando vista previa...</div>}
+              <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>Se actualiza sola al cambiar cualquier medida. Es el PDF real con datos de muestra.</div>
+            </div>
+
           </div>
-          <div className="inp-row">
-            <label>Logo (imagen JPEG)</label>
-            <label className={`foto-upload${logoPreview ? ' ok' : ''}`}>
-              {logoPreview ? 'Logo cargado — clic para cambiar' : '+ Subir logo (JPEG)'}
-              <input type="file" accept="image/jpeg,image/jpg" style={{ display: 'none' }} onChange={handleLogo} />
-            </label>
-          </div>
-          {logoPreview && <img src={logoPreview} alt="Logo" style={{ maxWidth: 140, maxHeight: 60, borderRadius: 6, marginBottom: 8, objectFit: 'contain' }} />}
-          <div style={{ display: 'flex', gap: 6 }}>
+          <div style={{ display: 'flex', gap: 6, marginTop: 10 }}>
             <button className="btn btn-sm" onClick={() => setConfigOpen(false)}>Cancelar</button>
             <button className="btn btn-p btn-sm" style={{ flex: 1 }} onClick={guardarConfig}>Guardar configuración</button>
           </div>
