@@ -22,6 +22,9 @@ export default function Venta() {
   const [fase, setFase] = useState('buscar')
   const [imprimiendo, setImprimiendo] = useState(null)
   const [editItem, setEditItem] = useState(null)
+  const [pendientes, setPendientes] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('tickets_pendientes') || '[]') } catch (e) { return [] }
+  })
   const busqRef = useRef(null)
   const cantRef = useRef(null)
   const listRef = useRef(null)
@@ -49,6 +52,10 @@ export default function Venta() {
   }, [buscadorOpen, fase, selIdx, cantidad, precioEdit, prodsFiltrados])
 
   useEffect(() => { setSelIdx(0) }, [busqQuery])
+
+  useEffect(() => {
+    try { localStorage.setItem('tickets_pendientes', JSON.stringify(pendientes)) } catch (e) {}
+  }, [pendientes])
 
   useEffect(() => {
     if (listRef.current) {
@@ -134,6 +141,25 @@ export default function Venta() {
     setEditItem(null)
   }
 
+  function guardarPendiente() {
+    if (items.length === 0) return alert('No hay productos en el ticket')
+    const nombre = clientes.find(c => c.id === clienteId)?.nombre || 'Sin cliente'
+    setPendientes(prev => [...prev, { id: Date.now(), cliente_id: clienteId, cliente_nombre: nombre, items }])
+    setItems([]); setClienteId('')
+  }
+
+  function continuarPendiente(p) {
+    if (items.length > 0 && !confirm('Hay un ticket en curso. ¿Reemplazarlo con el pendiente? El actual se perderá.')) return
+    setClienteId(p.cliente_id || '')
+    setItems(p.items || [])
+    setPendientes(prev => prev.filter(x => x.id !== p.id))
+  }
+
+  function eliminarPendiente(id) {
+    if (!confirm('¿Eliminar este ticket pendiente?')) return
+    setPendientes(prev => prev.filter(x => x.id !== id))
+  }
+
   const total = items.reduce((s, i) => s + i.subtotal, 0)
   const totalHoy = ventasHoy.reduce((s, t) => s + t.total, 0)
   const clienteNombre = clientes.find(c => c.id === clienteId)?.nombre || ''
@@ -205,6 +231,28 @@ export default function Venta() {
               </div>
             )}
           </div>
+          {pendientes.length > 0 && (
+            <div style={{ marginBottom: 10 }}>
+              <div className="sec">Tickets pendientes ({pendientes.length})</div>
+              <div className="ventas-panel">
+                {pendientes.map(p => {
+                  const tot = (p.items || []).reduce((s, i) => s + i.subtotal, 0)
+                  return (
+                    <div key={p.id} className="row no-hover" style={{ cursor: 'default' }}>
+                      <div className="ri">
+                        <div className="rn">{p.cliente_nombre}</div>
+                        <div className="rs">{(p.items || []).length} productos · ${tot.toLocaleString('es-MX', { minimumFractionDigits: 2 })}</div>
+                      </div>
+                      <div className="ra" style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                        <button className="btn btn-sm btn-p" style={{ fontSize: 11 }} onClick={() => continuarPendiente(p)}>Continuar</button>
+                        <button className="btn btn-sm" style={{ fontSize: 11, color: 'var(--red)' }} onClick={() => eliminarPendiente(p.id)}>✕</button>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
           <button className="btn btn-f" style={{ fontSize: 12, marginBottom: 8 }} onClick={() => setMostrarVentas(v => !v)}>
             {mostrarVentas ? 'Ocultar ventas del día' : `Ver ventas del día (${ventasHoy.length}) →`}
           </button>
@@ -272,6 +320,7 @@ export default function Venta() {
             <button className="btn btn-d btn-f" style={{ fontSize: 12 }} onClick={() => setItems([])}>Cancelar</button>
             <button className="btn btn-p btn-f" style={{ fontSize: 12 }} onClick={confirmarVenta}>Confirmar venta</button>
           </div>
+          <button className="btn btn-f" style={{ fontSize: 12, marginTop: 8 }} onClick={guardarPendiente}>⏸ Guardar como pendiente</button>
         </div>
       </div>
 

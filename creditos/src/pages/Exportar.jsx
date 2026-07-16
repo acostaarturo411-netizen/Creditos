@@ -109,7 +109,7 @@ export default function Exportar() {
     logo: null, font_size: 8, ancho: '58', interlineado: 0.35,
     margen_izq: 2, margen_der: 2, margen_sup: 2,
     logo_ancho: 48, logo_alto: 13, logo_align: 'centro', logo_en_copia: false,
-    alto_max: 280, modo_impresion: 'rapido'
+    alto_max: 280, modo_impresion: 'rapido', mostrar_unidad: false
   })
   const [logoPreview, setLogoPreview] = useState(null)
   const [previewUri, setPreviewUri] = useState(null)
@@ -277,8 +277,16 @@ export default function Exportar() {
                 </div>
               </div>
 
+              <div className="inp-row">
+                <label>Mostrar unidad (caja/pieza) en el ticket</label>
+                <select value={config.mostrar_unidad ? 'si' : 'no'} onChange={e => setConfig(v=>({...v,mostrar_unidad:e.target.value==='si'}))}>
+                  <option value="no">No — solo cantidad y producto (mas limpio)</option>
+                  <option value="si">Si — cantidad, unidad y producto</option>
+                </select>
+              </div>
+
               <div className="g2">
-                <div className="inp-row"><label>Tamaño de fuente (6-10)</label><input type="number" value={config.font_size} onChange={e => setConfig(v=>({...v,font_size:e.target.value}))} min="6" max="10" step="0.5" /></div>
+                <div className="inp-row"><label>Tamaño de fuente (6-16)</label><input type="number" value={config.font_size} onChange={e => setConfig(v=>({...v,font_size:e.target.value}))} min="6" max="16" step="0.5" /></div>
                 <div className="inp-row"><label>Interlineado (0.30-0.60)</label><input type="number" value={config.interlineado} onChange={e => setConfig(v=>({...v,interlineado:e.target.value}))} min="0.3" max="0.6" step="0.05" /></div>
               </div>
               <div className="g2">

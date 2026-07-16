@@ -130,7 +130,9 @@ function dibujarBloque(ctx, config, d, esCopia) {
 
   // Productos (descripciones largas se parten en varias líneas)
   d.items.forEach(item => {
-    const lineaProd = `${item.cantidad} ${item.unidad} ${item.descripcion || ''}`
+    const lineaProd = config.mostrar_unidad
+      ? `${item.cantidad} ${item.unidad} ${item.descripcion || ''}`
+      : `${item.cantidad} ${item.descripcion || ''}`
     partir(lineaProd, nSep).forEach(l => ctx.linea(l, o.margenIzq))
     const pu = `  $${parseFloat(item.precio_unitario).toLocaleString('es-MX')} c/u`
     const sub = `$${parseFloat(item.subtotal || item.cantidad * item.precio_unitario).toLocaleString('es-MX')}`
